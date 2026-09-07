@@ -16,6 +16,10 @@ import { ExperienceService } from './modules/experiences/experiences.service.js'
 import { registerExperienceModule } from './modules/experiences/experiences.routes.js';
 import { AiService } from './modules/ai/ai.service.js';
 import { registerAiModule } from './modules/ai/ai.routes.js';
+import { AchievementService } from './modules/achievements/achievements.service.js';
+import { registerAchievementModule } from './modules/achievements/achievements.routes.js';
+import { ProgressService } from './modules/progress/progress.service.js';
+import { registerProgressModule } from './modules/progress/progress.routes.js';
 import { GeminiProvider } from './modules/ai/providers/gemini.provider.js';
 import { OpenAiCompatibleProvider } from './modules/ai/providers/openai-compatible.provider.js';
 import { UnconfiguredProvider } from './modules/ai/providers/llm.provider.js';
@@ -60,6 +64,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     model: config.aiModel,
   });
   registerAiModule(app, new AiService(provider));
+
+  const achievementService = new AchievementService();
+  registerAchievementModule(app, achievementService);
+
+  registerProgressModule(app, new ProgressService(achievementService));
 
   // Liveness + database connectivity probe. The database result is advisory;
   // the endpoint never fails because of an unavailable database.

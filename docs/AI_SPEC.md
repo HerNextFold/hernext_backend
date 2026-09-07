@@ -1195,3 +1195,51 @@ Career Passport
 
 > AI interprets and explains.
 > Backend validates, calculates, stores and controls.
+
+---
+
+# 43. Live Verification Status (Phase 3)
+
+Provider configuration in the backend `.env`:
+
+```text
+AI_PROVIDER=gemini
+AI_MODEL=gemini-3.6-flash
+AI_API_KEY=<from Google AI Studio, environment only>
+```
+
+Live verification of the real Gemini API remains **blocked by an environment
+issue**, not by the HerNext implementation:
+
+```text
+Real Gemini API connectivity could not be verified from this machine because
+generativelanguage.googleapis.com is unreachable.
+```
+
+The Gemini REST endpoint `https://generativelanguage.googleapis.com` resolves to
+the `172.217.x.x` IP range, which is blocked by the machine/network firewall
+(outbound HTTPS times out / connection refused). `www.google.com` and
+`ai.google.dev` are reachable, confirming the block is IP-range specific.
+
+Nothing was changed in the application architecture or provider code to work
+around the network issue. The provider implementation is covered by deterministic
+mocked tests, and persistence is covered by Neon integration tests with a mocked
+provider.
+
+To complete live verification once network access to
+`generativelanguage.googleapis.com` is available:
+
+```text
+set RUN_GEMINI=1&& npx vitest run tests/gemini.integration.test.ts
+```
+
+This test only runs when `RUN_GEMINI=1`, `AI_PROVIDER=gemini`, and a real
+`AI_API_KEY`/`AI_MODEL` are present. It verifies the full pipeline:
+
+```text
+HerNext API → AiService → GeminiProvider → Gemini API → structured JSON
+  → Zod validation → backend scoring/business logic → Neon PostgreSQL
+```
+
+Live verification is complete only when at least one real Gemini request
+successfully completes end-to-end.

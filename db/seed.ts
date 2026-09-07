@@ -3,11 +3,15 @@ import { loadEnv } from '../src/config/env.js';
 import type { Db } from '../src/lib/db.js';
 
 /**
- * Seeds the approved HerNext career and skill catalogues with their
- * career-skill relationships (docs/DATABASE_SCHEMA.md §7, §9, §10, §34).
+ * Seeds the approved HerNext catalogues:
+ *   - careers and skills with their career-skill relationships
+ *     (docs/DATABASE_SCHEMA.md §7, §9, §10, §34)
+ *   - the initial achievement milestones (docs/DATABASE_SCHEMA.md §21)
+ *   - the initial practical challenges and their skills
+ *     (docs/PRODUCT_SPEC.md §20, docs/DATABASE_SCHEMA.md §17-§18)
  *
- * Idempotent: skills/careers are matched by stable name so re-running the seed
- * never creates duplicates or resets existing rows.
+ * Idempotent: skills/careers/achievements/challenges are matched by stable
+ * name so re-running the seed never creates duplicates or resets existing rows.
  */
 
 interface SeedSkill {
@@ -242,12 +246,163 @@ async function seedCareers(client: Db, skillIds: Map<string, string>): Promise<v
   }
 }
 
+interface SeedAchievement {
+  name: string;
+  code: string;
+  description: string;
+}
+
+interface SeedChallenge {
+  title: string;
+  description: string;
+  difficulty: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
+  skills: string[];
+}
+
+/**
+ * Initial achievements (docs/DATABASE_SCHEMA.md §21). The stable code lives in
+ * the criteria jsonb so the deterministic evaluator can match against it, while
+ * `name` is the human-readable milestone shown to participants.
+ */
+const ACHIEVEMENTS: SeedAchievement[] = [
+  {
+    name: 'Profile Completed',
+    code: 'PROFILE_COMPLETED',
+    description: 'Completed the required career profile fields.',
+  },
+  {
+    name: 'Career Impact Assessment Completed',
+    code: 'ASSESSMENT_COMPLETED',
+    description: 'Completed the AI Career Impact Assessment.',
+  },
+  {
+    name: 'First Skill Discovered',
+    code: 'FIRST_SKILL_DISCOVERED',
+    description: 'Discovered your first transferable skill.',
+  },
+  {
+    name: 'First Challenge Completed',
+    code: 'FIRST_CHALLENGE_COMPLETED',
+    description: 'Passed your first practical challenge.',
+  },
+  {
+    name: 'First Evidence Added',
+    code: 'FIRST_EVIDENCE_CREATED',
+    description: 'Created your first piece of evidence.',
+  },
+  {
+    name: '30-Day Goal Completed',
+    code: '30_DAY_GOAL_COMPLETED',
+    description: 'Completed the first 30 days of your career roadmap.',
+  },
+  {
+    name: 'Roadmap Completed',
+    code: 'ROADMAP_COMPLETED',
+    description: 'Completed your full career roadmap.',
+  },
+  {
+    name: 'Career Passport Ready',
+    code: 'PASSPORT_READY',
+    description: 'Generated your Career Passport.',
+  },
+];
+
+/** Initial MVP challenges (docs/PRODUCT_SPEC.md §20, docs/DATABASE_SCHEMA.md §34). */
+const CHALLENGES: SeedChallenge[] = [
+  {
+    title: 'Financial Reconciliation Challenge',
+    description:
+      'Given fictional transaction data, calculate totals, identify discrepancies, determine the closing balance and explain the discrepancy.',
+    difficulty: 'BEGINNER',
+    skills: ['Financial Record Keeping', 'Reconciliation', 'Attention to Detail', 'Problem Solving'],
+  },
+  {
+    title: 'Customer Payment Resolution Challenge',
+    description:
+      "A customer's account was debited but the payment did not successfully complete. Explain how you would handle the situation.",
+    difficulty: 'INTERMEDIATE',
+    skills: ['Customer Service', 'Problem Solving', 'Digital Payments', 'Communication'],
+  },
+];
+
+async function seedAchievements(client: Db): Promise<void> {
+  for (const achievement of ACHIEVEMENTS) {
+    const existing = await queryText<{ id: string }>(
+      client,
+      'SELECT "id" FROM "achievements" WHERE "name" = $1',
+      [achievement.name],
+    );
+    if (existing[0] !== undefined) {
+      await queryText(
+        client,
+        `UPDATE "achievements" SET "description" = $2, "criteria" = jsonb_build_object('code', $3::text) WHERE "id" = $1`,
+        [existing[0].id, achievement.description, achievement.code],
+      );
+    } else {
+      await queryText(
+        client,
+        `INSERT INTO "achievements" ("name", "description", "criteria")
+         VALUES ($1, $2, jsonb_build_object('code', $3::text))`,
+        [achievement.name, achievement.description, achievement.code],
+      );
+    }
+  }
+}
+
+async function seedChallenges(client: Db, skillIds: Map<string, string>): Promise<void> {
+  for (const challenge of CHALLENGES) {
+    const existing = await queryText<{ id: string }>(
+      client,
+      'SELECT "id" FROM "challenges" WHERE "title" = $1',
+      [challenge.title],
+    );
+    if (existing[0] !== undefined) {
+      await queryText(
+        client,
+        `UPDATE "challenges" SET "description" = $2, "difficulty" = $3::challenge_difficulty WHERE "id" = $1`,
+        [existing[0].id, challenge.description, challenge.difficulty],
+      );
+    } else {
+      await queryText(
+        client,
+        `INSERT INTO "challenges" ("title", "description", "difficulty")
+         VALUES ($1, $2, $3::challenge_difficulty)`,
+        [challenge.title, challenge.description, challenge.difficulty],
+      );
+    }
+    const challengeRow = existing[0] !== undefined ? existing : await queryText<{ id: string }>(
+      client,
+      'SELECT "id" FROM "challenges" WHERE "title" = $1',
+      [challenge.title],
+    );
+    const challengeId = challengeRow[0]?.id;
+    if (challengeId === undefined) {
+      throw new Error(`Challenge not found after insert: ${challenge.title}`);
+    }
+    for (const skillName of challenge.skills) {
+      const skillId = skillIds.get(skillName);
+      if (skillId === undefined) {
+        throw new Error(`Skill not found for challenge ${challenge.title}: ${skillName}`);
+      }
+      await queryText(
+        client,
+        `INSERT INTO "challenge_skills" ("challengeId", "skillId")
+         VALUES ($1, $2)
+         ON CONFLICT ("challengeId", "skillId") DO NOTHING`,
+        [challengeId, skillId],
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const config = loadEnv();
   initDb(config);
   await withTransaction(async (client) => {
     const skillIds = await seedSkills(client);
     await seedCareers(client, skillIds);
+    await seedAchievements(client);
+    await seedChallenges(client, skillIds);
   });
   console.log('Catalogue seeded.');
   await closeDb();

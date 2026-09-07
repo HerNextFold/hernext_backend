@@ -4,6 +4,7 @@ import { getPool, queryRow, queryText, type Db } from '../lib/db.js';
 
 export type RoadmapPhase = 'DAY_30' | 'DAY_60' | 'DAY_90';
 export type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+export type RoadmapTaskStatus = TaskStatus;
 
 export interface RoadmapRow {
   id: string;
@@ -87,6 +88,32 @@ export function groupTasksByPhase(tasks: RoadmapTaskRow[]): Record<RoadmapPhase,
 }
 
 /**
+ * Returns the most recently created roadmap for a user, or null when none
+ * exists. Used by progress/next-action services that treat an absent roadmap as
+ * an incomplete journey step rather than an error.
+ */
+export async function findLatestRoadmapWithTasks(
+  db: Db | undefined,
+  userId: string,
+): Promise<RoadmapWithTasks | null> {
+  const pool = db ?? getPool();
+  const roadmap = await queryRow<RoadmapRow>(
+    pool,
+    'SELECT * FROM "roadmaps" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 1',
+    [userId],
+  );
+  if (roadmap === null) {
+    return null;
+  }
+  const tasks = await queryText<RoadmapTaskRow>(
+    pool,
+    'SELECT * FROM "roadmap_tasks" WHERE "roadmapId" = $1 ORDER BY "phase", "order"',
+    [roadmap.id],
+  );
+  return { roadmap, tasks };
+}
+
+/**
  * Returns the most recently created roadmap for a user, with its tasks. Throws
  * RESOURCE_NOT_FOUND when the user has no roadmap.
  */
@@ -140,4 +167,67 @@ export async function countUserRoadmaps(db: Db | undefined, userId: string): Pro
     [userId],
   );
   return Number(row?.count ?? 0);
+}
+
+/**
+ * Loads a single roadmap task only when it belongs to a roadmap owned by the
+ * user. Returns null when the task does not exist or belongs to another user
+ * (ownership enforced in the query to prevent IDOR - docs/SECURITY_SPEC.md §14).
+ */
+export async function findOwnedTask(
+  db: Db | undefined,
+  taskId: string,
+  userId: string,
+): Promise<RoadmapTaskRow | null> {
+  return queryRow<RoadmapTaskRow>(
+    db ?? getPool(),
+    `SELECT t.*
+     FROM "roadmap_tasks" t
+     JOIN "roadmaps" r ON r."id" = t."roadmapId"
+     WHERE t."id" = $1 AND r."userId" = $2`,
+    [taskId, userId],
+  );
+}
+
+/**
+ * Updates a task's status (completing/clearing `completedAt` accordingly) only
+ * when it belongs to a roadmap owned by the user. Returns null when the task is
+ * missing or not owned.
+ */
+export async function updateTaskStatus(
+  db: Db,
+  taskId: string,
+  userId: string,
+  status: TaskStatus,
+): Promise<RoadmapTaskRow | null> {
+  const completedAtSql =
+    status === 'COMPLETED' ? 'now()' : 'NULL';
+  return queryRow<RoadmapTaskRow>(
+    db,
+    `UPDATE "roadmap_tasks" AS t
+       SET "status" = $1,
+           "completedAt" = ${completedAtSql},
+           "updatedAt" = now()
+     FROM "roadmaps" AS r
+     WHERE t."id" = $2 AND r."id" = t."roadmapId" AND r."userId" = $3
+     RETURNING t.*`,
+    [status, taskId, userId],
+  );
+}
+
+/** Loads an owned task within the same roadmap (for progress recompute after update). */
+export async function findTasksForTask(
+  db: Db | undefined,
+  taskId: string,
+  userId: string,
+): Promise<RoadmapTaskRow[] | null> {
+  const task = await findOwnedTask(db, taskId, userId);
+  if (task === null) {
+    return null;
+  }
+  return queryText<RoadmapTaskRow>(
+    db ?? getPool(),
+    'SELECT * FROM "roadmap_tasks" WHERE "roadmapId" = $1 ORDER BY "phase", "order"',
+    [task.roadmapId],
+  );
 }
