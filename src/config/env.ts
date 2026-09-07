@@ -29,6 +29,7 @@ const appEnvSchema = z.object({
   JWT_EXPIRES_IN: z.string().min(1).default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().min(1).default('7d'),
   FRONTEND_URL: z.string().url('FRONTEND_URL must be a valid URL').default('http://localhost:5173'),
+  AI_PROVIDER: z.string().min(1).default('gemini'),
   AI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
@@ -44,6 +45,7 @@ export type AppConfig = {
   jwtExpiresIn: string;
   jwtRefreshExpiresIn: string;
   frontendUrl: string;
+  aiProvider: string;
   aiApiKey: string | undefined;
   aiModel: string | undefined;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
@@ -74,6 +76,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     jwtExpiresIn: env.JWT_EXPIRES_IN,
     jwtRefreshExpiresIn: env.JWT_REFRESH_EXPIRES_IN,
     frontendUrl: env.FRONTEND_URL,
+    aiProvider: env.AI_PROVIDER,
     aiApiKey: env.AI_API_KEY,
     aiModel: env.AI_MODEL,
     logLevel: env.LOG_LEVEL,

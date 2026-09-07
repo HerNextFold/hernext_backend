@@ -7,9 +7,9 @@ function createPool(databaseUrl: string, sslRequired: boolean): Pool {
   const options: PoolConfig = {
     connectionString: databaseUrl,
     max: 10,
-    connectionTimeoutMillis: 4000,
-    query_timeout: 4000,
-    statement_timeout: 4000,
+    connectionTimeoutMillis: 10000,
+    query_timeout: 15000,
+    statement_timeout: 15000,
   };
 
   // Neon requires SSL. If the connection string does not already request a

@@ -27,10 +27,24 @@ export function registerAuth(app: FastifyInstance, config: Pick<AppConfig, 'jwtS
   void app.register(fastifyJwt, { secret: config.jwtSecret });
 
   app.decorate('authenticate', async (request: FastifyRequest) => {
+    const authorization = request.headers.authorization;
+    if (authorization === undefined || !authorization.startsWith('Bearer ')) {
+      throw new AppError(errorCodes.AUTHENTICATION_REQUIRED, 'Authentication is required', 401);
+    }
     try {
       await request.jwtVerify();
-    } catch {
-      throw new AppError(errorCodes.INVALID_TOKEN, 'Authentication token is invalid or expired', 401);
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+      const expired =
+        code === 'FST_JWT_AUTHORIZATION_TOKEN_EXPIRED' ||
+        code === 'FAST_JWT_EXPIRED';
+      throw new AppError(
+        expired ? errorCodes.TOKEN_EXPIRED : errorCodes.INVALID_TOKEN,
+        expired ? 'Authentication token has expired' : 'Authentication token is invalid',
+        401,
+      );
     }
   });
 }

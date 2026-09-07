@@ -486,6 +486,66 @@ The score must not be presented as a scientific prediction of job loss.
 
 ---
 
+# 15a. GET `/ai/career-impact/:experienceId`
+
+Returns the most recent saved Career Impact Assessment for the authenticated
+participant's given experience.
+
+### Path Parameter
+
+```text
+experienceId  the UUID of an experience owned by the authenticated user
+```
+
+### Processing
+
+```text
+Request
+  ↓
+Authentication
+  ↓
+Ownership check
+  ↓
+Load latest saved CareerAnalysis
+  ↓
+Return result
+```
+
+This endpoint performs no AI call - it reads the most recently persisted
+assessment so the frontend can re-render the result without re-running the
+(often rate-limited) AI generation. It returns `404 RESOURCE_NOT_FOUND` when no
+assessment has been saved for that experience.
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "score": 58,
+    "level": "MODERATE",
+    "automationTasks": [
+      "Routine transaction record entry"
+    ],
+    "augmentedTasks": [
+      "Transaction monitoring",
+      "Record keeping"
+    ],
+    "humanStrengths": [
+      "Customer relationship management",
+      "Problem solving"
+    ],
+    "emergingSkills": [
+      "Digital payment tools",
+      "Fraud awareness"
+    ],
+    "explanation": "..."
+  }
+}
+```
+
+---
+
 # 16. POST `/ai/transferable-skills`
 
 Identifies professional skills demonstrated by an experience.
@@ -663,6 +723,52 @@ Save Roadmap
 # 20. GET `/roadmaps/current`
 
 Returns the participant's active roadmap.
+
+---
+
+# 20a. GET `/ai/roadmap`
+
+Returns the most recently generated roadmap (with its 30/60/90-day tasks) for
+the authenticated participant.
+
+### Processing
+
+```text
+Request
+  ↓
+Authentication
+  ↓
+Load current roadmap + tasks
+  ↓
+Return result
+```
+
+This endpoint performs no AI call - it reads the persisted roadmap so the
+frontend can re-render the plan without re-running the (often rate-limited) AI
+generation. It returns `404 RESOURCE_NOT_FOUND` when the user has no generated
+roadmap yet.
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "roadmap": {
+      "id": "uuid",
+      "careerPathId": "uuid",
+      "title": "Your Fintech Operations Career Roadmap",
+      "description": "...",
+      "createdAt": "2026-09-06T..."
+    },
+    "phases": {
+      "DAY_30": [],
+      "DAY_60": [],
+      "DAY_90": []
+    }
+  }
+}
+```
 
 ---
 

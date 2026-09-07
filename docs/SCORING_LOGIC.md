@@ -113,6 +113,45 @@ Lower score:
 Less direct AI/automation exposure in the identified tasks.
 ```
 
+## 5.1 Deterministic Formula (backend-owned)
+
+The three category weights form a weighted average of the task mix. Because the
+weights sum to `1.0`, a raw weighted average only spans `0.20` (all tasks are
+human-value) to `0.50` (all tasks are automation-exposed). To make the
+documented `0–100` scale and the `67–100` HIGH band reachable, the backend maps
+that weighted average onto the achievable range.
+
+Given `a`, `u` and `h` as the counts of automation, augmentation and human-value
+tasks:
+
+```text
+total = a + u + h
+
+weighted = (a · 0.50 + u · 0.30 + h · 0.20) / total
+
+minWeighted = 0.20   # all tasks are human-value
+maxWeighted = 0.50   # all tasks are automation-exposed
+
+raw = (weighted − minWeighted) / (maxWeighted − minWeighted) · 100
+
+score = clamp(round(raw))   # clamp to 0–100, round to nearest integer
+```
+
+When `total = 0` (no classified tasks) the score is `0`.
+
+This preserves the documented category weights and bandwidths unchanged while
+mapping the documented poles onto the scale:
+
+```text
+all automation-exposed tasks                     → 100
+all human-value tasks                            → 0
+all augmentation tasks                           → 33
+```
+
+The formula is implemented in `src/lib/scoring/ai-impact.ts` and is covered by
+deterministic unit tests. The AI never returns the score; the backend computes
+it.
+
 ---
 
 # 6. Impact Level

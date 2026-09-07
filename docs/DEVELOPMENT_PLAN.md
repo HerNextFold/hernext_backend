@@ -1201,6 +1201,7 @@ PORT
 DATABASE_URL
 JWT_SECRET
 FRONTEND_URL
+AI_PROVIDER
 AI_API_KEY
 ```
 
@@ -1211,6 +1212,11 @@ JWT_EXPIRES_IN
 AI_MODEL
 LOG_LEVEL
 ```
+
+`AI_PROVIDER` selects the LLM provider implementation (default `gemini` for
+Google Gemini via Google AI Studio; `openai-compatible` is also supported). The
+AI provider keys are read from environment variables only and are never
+committed, logged, or returned to the frontend.
 
 All environment variables must be validated at startup.
 

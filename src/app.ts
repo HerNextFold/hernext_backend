@@ -5,11 +5,21 @@ import { errorCodes } from './common/errors/error-codes.js';
 import { errorToEnvelope, handleError } from './common/errors/error-handler.js';
 import { sendOk } from './common/utils/api-response.js';
 import { checkDatabaseConnection } from './lib/db.js';
+import { AuthService } from './modules/auth/auth.service.js';
+import { registerAuthModule } from './modules/auth/auth.routes.js';
 import { registerAuth } from './plugins/auth.js';
 import { registerCors } from './plugins/cors.js';
 import { registerHelmet } from './plugins/helmet.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
 import { registerSwagger } from './plugins/swagger.js';
+import { ExperienceService } from './modules/experiences/experiences.service.js';
+import { registerExperienceModule } from './modules/experiences/experiences.routes.js';
+import { AiService } from './modules/ai/ai.service.js';
+import { registerAiModule } from './modules/ai/ai.routes.js';
+import { GeminiProvider } from './modules/ai/providers/gemini.provider.js';
+import { OpenAiCompatibleProvider } from './modules/ai/providers/openai-compatible.provider.js';
+import { UnconfiguredProvider } from './modules/ai/providers/llm.provider.js';
+import type { LLMProvider } from './modules/ai/providers/llm.provider.js';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -30,6 +40,27 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerAuth(app, config);
   registerRateLimit(app);
 
+  // Access tokens are signed here so the service never touches raw secrets.
+  const authService = new AuthService({
+    signAccessToken: (user) =>
+      app.jwt.sign({ id: user.id, role: user.role }, { expiresIn: config.jwtExpiresIn }),
+  });
+  registerAuthModule(app, authService);
+
+  const experienceService = new ExperienceService();
+  registerExperienceModule(app, experienceService);
+
+  // Provider selection is configuration-driven (docs/AI_SPEC.md §16). All
+  // providers implement the same LLMProvider interface, so the AI service
+  // never depends on a specific vendor. Unless explicitly overridden via
+  // AI_PROVIDER, Google Gemini (Google AI Studio) is used.
+  const provider: LLMProvider = buildLlmProvider({
+    provider: config.aiProvider,
+    apiKey: config.aiApiKey,
+    model: config.aiModel,
+  });
+  registerAiModule(app, new AiService(provider));
+
   // Liveness + database connectivity probe. The database result is advisory;
   // the endpoint never fails because of an unavailable database.
   app.get('/health', async (_request, reply) => {
@@ -47,4 +78,28 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   return app;
+}
+
+/**
+ * Selects a concrete LLM provider implementation from configuration. If no API
+ * key or model is configured we return UnconfiguredProvider, which fails safely
+ * instead of performing a real (or mocked) call - so the backend never silently
+ * falls back to a fake provider in production.
+ */
+function buildLlmProvider(input: {
+  provider: string;
+  apiKey: string | undefined;
+  model: string | undefined;
+}): LLMProvider {
+  if (!input.apiKey || !input.model) {
+    return new UnconfiguredProvider();
+  }
+  switch (input.provider.toLowerCase()) {
+    case 'openai':
+    case 'openai-compatible':
+      return new OpenAiCompatibleProvider({ apiKey: input.apiKey, model: input.model });
+    case 'gemini':
+    default:
+      return new GeminiProvider({ apiKey: input.apiKey, model: input.model });
+  }
 }

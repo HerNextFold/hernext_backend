@@ -9,7 +9,7 @@ import type { UserRole } from '../types/auth.js';
  * `{ preHandler: [authenticate, requireRole('ORGANIZATION_ADMIN')] }`.
  */
 export function requireRole(...roles: readonly UserRole[]) {
-  return (request: FastifyRequest): void => {
+  return async (request: FastifyRequest): Promise<void> => {
     let role: UserRole | undefined;
     try {
       role = request.user.role;

@@ -11,6 +11,18 @@ const STATUS_TO_CODE: Record<number, string> = {
   429: errorCodes.RATE_LIMIT_EXCEEDED,
 };
 
+/**
+ * node-postgres errors carry a five-character code (e.g. 23505, 08006).
+ * They surface as DATABASE_ERROR - never as raw database internals.
+ */
+function isPgError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code);
+}
+
 const STATUS_TO_MESSAGE: Record<number, string> = {
   400: 'Invalid request data',
   401: 'Authentication is required',
@@ -67,6 +79,20 @@ export function handleError(
         code: errorCodes.VALIDATION_ERROR,
         message: 'Invalid request data',
         details: error.validation ?? [],
+      },
+    });
+    return;
+  }
+
+  // PostgreSQL failures map to a safe DATABASE_ERROR without internals.
+  if (isPgError(error)) {
+    request.log.error({ err: error }, 'Database error');
+    reply.status(503).send({
+      success: false,
+      error: {
+        code: errorCodes.DATABASE_ERROR,
+        message: 'The database is temporarily unavailable. Please try again later.',
+        details: [],
       },
     });
     return;
