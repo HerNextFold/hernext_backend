@@ -77,6 +77,30 @@ export async function insertRoadmapTask(
   return row;
 }
 
+/**
+ * Updates a roadmap's career/title/description in place (used when a roadmap is
+ * regenerated for the same user, possibly for a different career).
+ */
+export async function updateRoadmapContent(
+  db: Db,
+  roadmapId: string,
+  userId: string,
+  input: { careerPathId: string; title: string; description: string },
+): Promise<void> {
+  await queryText(
+    db,
+    `UPDATE "roadmaps"
+       SET "careerPathId" = $1, "title" = $2, "description" = $3, "updatedAt" = now()
+     WHERE "id" = $4 AND "userId" = $5`,
+    [input.careerPathId, input.title, input.description, roadmapId, userId],
+  );
+}
+
+/** Deletes all tasks of a roadmap (before re-inserting a regenerated plan). */
+export async function deleteRoadmapTasks(db: Db, roadmapId: string): Promise<void> {
+  await queryText(db, 'DELETE FROM "roadmap_tasks" WHERE "roadmapId" = $1', [roadmapId]);
+}
+
 export function groupTasksByPhase(tasks: RoadmapTaskRow[]): Record<RoadmapPhase, RoadmapTaskRow[]> {
   return tasks.reduce<Record<RoadmapPhase, RoadmapTaskRow[]>>(
     (acc, task) => {

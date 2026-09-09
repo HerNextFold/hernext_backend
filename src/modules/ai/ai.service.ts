@@ -1,6 +1,6 @@
 import { AppError } from '../../common/errors/app-error.js';
 import { errorCodes } from '../../common/errors/error-codes.js';
-import { getPool, withTransaction } from '../../lib/db.js';
+import { getPool, withTransaction, type Db } from '../../lib/db.js';
 import { calculateAiImpactScore, impactLevelForScore } from '../../lib/scoring/ai-impact.js';
 import {
   calculateSkillMatchScore,
@@ -9,7 +9,7 @@ import {
   calculateAiReadinessScore,
   calculateCareerInterestScore,
 } from '../../lib/scoring/career-match.js';
-import { computeSkillGaps, missingSkills } from '../../lib/scoring/skill-gap.js';
+import { computeSkillGaps, missingSkills, type GapPriority, type SkillGapStatus } from '../../lib/scoring/skill-gap.js';
 import { findOwnedExperience, listExperiences } from '../../models/experience.model.js';
 import { findCareerProfileByUserId } from '../../models/career-profile.model.js';
 import {
@@ -22,6 +22,7 @@ import {
   insertCareerAnalysis,
   replaceTransferableSkills,
   listTransferableSkills,
+  listTransferableSkillsForExperience,
   findLatestAnalysis,
   type CareerAnalysisRow,
 } from '../../models/ai.model.js';
@@ -29,14 +30,16 @@ import {
   replaceCareerRecommendations,
   replaceSkillGaps,
   listCareerRecommendationsWithName,
-  listSkillGapsWithNames,
 } from '../../models/careers.model.js';
 import { upsertUserSkill, listUserSkillsWithNames } from '../../models/user-skill.model.js';
 import {
+  deleteRoadmapTasks,
   findCurrentRoadmapWithTasks,
+  findLatestRoadmapWithTasks,
   groupTasksByPhase,
   insertRoadmap,
   insertRoadmapTask,
+  updateRoadmapContent,
   type RoadmapPhase,
   type RoadmapWithTasks,
 } from '../../models/roadmap.model.js';
@@ -59,8 +62,8 @@ const MAX_AI_RETRIES = 1;
 export interface CareerImpactResponse {
   id: string;
   experienceId: string;
-  aiImpactScore: number;
-  impactLevel: string;
+  score: number;
+  level: string;
   automationTasks: string[];
   augmentedTasks: string[];
   humanStrengths: string[];
@@ -82,6 +85,11 @@ export interface CareerRecommendationResponse {
   matchScore: number;
   rank: number;
   reason: string;
+}
+
+export interface SkillGapsResponse {
+  career: { id: string; name: string };
+  skills: Array<{ skillId: string; skillName: string; status: SkillGapStatus; priority: GapPriority }>;
 }
 
 export interface RoadmapResponse {
@@ -109,16 +117,25 @@ function aiFailure(_error: LLMProviderError): never {
 export class AiService {
   constructor(private readonly provider: LLMProvider) {}
 
-  async runCareerImpact(userId: string, experienceId: string): Promise<CareerImpactResponse> {
-    const existing = await findLatestAnalysis(getPool(), userId, experienceId);
-    if (existing) {
-      return toCareerImpactResponse(existing);
-    }
-
+  /**
+   * Runs or reuses a Career Impact Assessment (docs/API_CONTRACT.md §15).
+   * When the experience has not changed since the saved assessment the stored
+   * result is reused so the rate-limited AI is not called again. Pass
+   * regenerate=true to force a fresh analysis.
+   */
+  async runCareerImpact(userId: string, experienceId: string, regenerate = false): Promise<CareerImpactResponse> {
     const experience = await findOwnedExperience(getPool(), experienceId, userId);
     if (experience === null) {
       throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Experience not found', 404);
     }
+
+    if (!regenerate) {
+      const existing = await findLatestAnalysis(getPool(), userId, experienceId);
+      if (existing && experience.updatedAt.getTime() <= existing.createdAt.getTime()) {
+        return toCareerImpactResponse(existing);
+      }
+    }
+
     const profile = await findCareerProfileByUserId(getPool(), userId);
     const context = await connectProfileWithExperience(profile, experience);
 
@@ -157,11 +174,32 @@ export class AiService {
     return toCareerImpactResponse(saved);
   }
 
-  async runTransferableSkills(userId: string, experienceId: string): Promise<TransferableSkillResponse[]> {
+  /**
+   * Extracts or reuses transferable skills for an experience
+   * (docs/API_CONTRACT.md §16). When valid rows already exist for the
+   * experience and the experience has not changed, the stored result is reused
+   * instead of calling the AI again. Pass regenerate=true to force a rebuild.
+   */
+  async runTransferableSkills(
+    userId: string,
+    experienceId: string,
+    regenerate = false,
+  ): Promise<TransferableSkillResponse[]> {
     const experience = await findOwnedExperience(getPool(), experienceId, userId);
     if (experience === null) {
       throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Experience not found', 404);
     }
+
+    const stored = await listTransferableSkillsForExperience(getPool(), userId, experienceId);
+    if (!regenerate && stored.length > 0) {
+      const latestCreated = new Date(Math.max(...stored.map((row) => row.createdAt.getTime())));
+      if (experience.updatedAt.getTime() <= latestCreated.getTime()) {
+        const skills = await listSkills(getPool());
+        const byId = new Map(skills.map((s) => [s.id, s.name]));
+        return toTransferableSkillResponse(stored, byId);
+      }
+    }
+
     const profile = await findCareerProfileByUserId(getPool(), userId);
     const context = await connectProfileWithExperience(profile, experience);
 
@@ -210,29 +248,62 @@ export class AiService {
       }
     });
 
-    return resolved.map((item) => ({
-      skillId: item.skillId,
-      skillName: byId.get(item.skillId) ?? null,
-      reason: item.reason,
-      confidence: item.confidence,
-    }));
+    return toTransferableSkillResponse(resolved, byId);
   }
 
-  async runCareerRecommendations(userId: string): Promise<CareerRecommendationResponse[]> {
-    const userSkills = await listUserSkillsWithNames(getPool(), userId);
+  async runCareerRecommendations(userId: string, db?: Db): Promise<CareerRecommendationResponse[]> {
+    const recommendations = await this.computeCareerRecommendations(userId, db);
+    await replaceCareerRecommendations(
+      db ?? getPool(),
+      userId,
+      recommendations.map((item) => ({
+        careerPathId: item.careerId,
+        matchScore: item.matchScore,
+        reason: item.reason,
+        rank: item.rank,
+      })),
+    );
+    const stored = await listCareerRecommendationsWithName(db ?? getPool(), userId);
+    return stored.map(toCareerRecommendationResponse);
+  }
+
+  /**
+   * Read-first career recommendations (docs/API_CONTRACT.md §17). Returns the
+   * persisted results when present; otherwise computes the deterministic
+   * recommendation without persisting. Optional `limit` clamps the list.
+   */
+  async getCareerRecommendations(userId: string, limit?: number, db?: Db): Promise<CareerRecommendationResponse[]> {
+    const pool = db ?? getPool();
+    const stored = await listCareerRecommendationsWithName(pool, userId);
+    const recommendations =
+      stored.length > 0 ? stored : await this.computeCareerRecommendations(userId, db);
+    return (limit === undefined ? recommendations : recommendations.slice(0, limit)).map(
+      toCareerRecommendationResponse,
+    );
+  }
+
+  /** Deterministic, catalogue-grounded career matching (docs/AI_SPEC.md §15). */
+  private async computeCareerRecommendations(
+    userId: string,
+    db?: Db,
+  ): Promise<
+    Array<{ careerId: string; careerName: string; matchScore: number; rank: number; reason: string }>
+  > {
+    const pool = db ?? getPool();
+    const userSkills = await listUserSkillsWithNames(pool, userId);
     const userSkillIds = new Set(userSkills.map((s) => s.skillId));
-    const profile = await findCareerProfileByUserId(getPool(), userId);
-    const experiences = await listExperiences(getPool(), userId);
+    const profile = await findCareerProfileByUserId(pool, userId);
+    const experiences = await listExperiences(pool, userId);
 
     // Relevant experience duration comes from real user-provided records: the
     // declared years on each experience plus the career profile's total. We
     // prefer actual user-provided values over any heuristic (docs/AI_SPEC.md §18).
     const relevantYears = totalExperienceYears(profile?.yearsOfExperience ?? null, experiences);
 
-    const careers = await listCareers(getPool());
-    const results: Array<{ careerPathId: string; matchScore: number; reason: string }> = [];
+    const careers = await listCareers(pool);
+    const results: Array<{ careerId: string; careerName: string; matchScore: number; reason: string }> = [];
     for (const career of careers) {
-      const withSkills = await findCareerWithSkills(getPool(), career.id);
+      const withSkills = await findCareerWithSkills(pool, career.id);
       if (withSkills === null || withSkills.skills.length === 0) {
         continue;
       }
@@ -256,35 +327,57 @@ export class AiService {
         aiReadiness,
       });
       results.push({
-        careerPathId: career.id,
+        careerId: career.id,
+        careerName: career.name,
         matchScore,
         reason: this.buildRecommendationReason(career.name, skillMatch, experienceMatch),
       });
     }
 
-    const ranked = results
+    return results
       .sort((a, b) => b.matchScore - a.matchScore)
       .map((item, index) => ({ ...item, rank: index + 1 }));
-
-    await replaceCareerRecommendations(getPool(), userId, ranked);
-
-    const stored = await listCareerRecommendationsWithName(getPool(), userId);
-    return stored.map((item) => ({
-      careerId: item.careerId,
-      careerName: item.careerName,
-      matchScore: item.matchScore,
-      rank: item.rank,
-      reason: item.reason,
-    }));
   }
 
-  async runSkillGaps(userId: string, careerPathId: string): Promise<unknown> {
-    await assertCareerExists(getPool(), careerPathId);
-    const withSkills = await findCareerWithSkills(getPool(), careerPathId);
-    if (withSkills === null) {
+  async runSkillGaps(userId: string, careerPathId: string, db?: Db): Promise<SkillGapsResponse> {
+    const view = await this.buildSkillGapsView(userId, careerPathId, db);
+    if (view === null) {
       throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Career not found', 404);
     }
-    const userSkills = await listUserSkillsWithNames(getPool(), userId);
+
+    await replaceSkillGaps(
+      db ?? getPool(),
+      userId,
+      careerPathId,
+      view.skills.map((g) => ({ skillId: g.skillId, status: g.status, priority: g.priority, reason: null })),
+    );
+    return view;
+  }
+
+  /**
+   * Read-first skill gap analysis (docs/API_CONTRACT.md §18). Computed
+   * deterministically from the catalogue; no AI call and no persistence.
+   */
+  async getSkillGaps(userId: string, careerPathId: string, db?: Db): Promise<SkillGapsResponse> {
+    const view = await this.buildSkillGapsView(userId, careerPathId, db);
+    if (view === null) {
+      throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Career not found', 404);
+    }
+    return view;
+  }
+
+  private async buildSkillGapsView(
+    userId: string,
+    careerPathId: string,
+    db?: Db,
+  ): Promise<SkillGapsResponse | null> {
+    const pool = db ?? getPool();
+    await assertCareerExists(pool, careerPathId);
+    const withSkills = await findCareerWithSkills(pool, careerPathId);
+    if (withSkills === null) {
+      return null;
+    }
+    const userSkills = await listUserSkillsWithNames(pool, userId);
     const userSkillIds = new Set(userSkills.map((s) => s.skillId));
 
     const gaps = computeSkillGaps({
@@ -296,22 +389,19 @@ export class AiService {
       userSkillIds,
     });
 
-    await replaceSkillGaps(
-      getPool(),
-      userId,
-      careerPathId,
-      gaps.map((g) => ({ skillId: g.skillId, status: g.status, priority: g.priority, reason: null })),
-    );
-
-    const stored = await listSkillGapsWithNames(getPool(), userId, careerPathId);
     return {
-      careerId: careerPathId,
-      careerName: withSkills.career.name,
-      gaps: stored,
+      career: { id: withSkills.career.id, name: withSkills.career.name },
+      skills: gaps.map((g) => ({ skillId: g.skillId, skillName: g.skillName, status: g.status, priority: g.priority })),
     };
   }
 
-  async runRoadmap(userId: string, careerPathId: string): Promise<RoadmapResponse> {
+  /**
+   * Generates (or reuses) a 30/60/90-day roadmap (docs/API_CONTRACT.md §19).
+   * When a current roadmap already exists for the same career it is reused so
+   * the rate-limited AI is not called again; an explicit regenerate (or a
+   * different target career) replaces it in place, preserving the roadmap row.
+   */
+  async runRoadmap(userId: string, careerPathId: string, regenerate = false): Promise<RoadmapResponse> {
     const withSkills = await findCareerWithSkills(getPool(), careerPathId);
     if (withSkills === null) {
       throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Career not found', 404);
@@ -331,6 +421,13 @@ export class AiService {
     );
     if (gaps.length === 0) {
       throw new AppError(errorCodes.RESOURCE_ALREADY_EXISTS, 'You already have all the skills for this career.', 409);
+    }
+
+    if (!regenerate) {
+      const current = await findLatestRoadmapWithTasks(getPool(), userId);
+      if (current !== null && current.roadmap.careerPathId === careerPathId && current.tasks.length > 0) {
+        return buildRoadmapResponse(current.roadmap.id, current);
+      }
     }
 
     const profile = await findCareerProfileByUserId(getPool(), userId);
@@ -354,36 +451,39 @@ export class AiService {
       throw new AppError(errorCodes.AI_OUTPUT_INVALID, 'The AI returned an unreadable response. Please try again.', 422);
     }
 
-    const phaseMap: Record<'30' | '60' | '90', RoadmapPhase> = { 30: 'DAY_30', 60: 'DAY_60', 90: 'DAY_90' };
+    // Validate before persisting: 3-5 tasks per 30/60/90 phase and every task
+    // resolves to an approved catalogue skill (docs/AI_SPEC.md §19-§20).
+    const resolvedTasks = resolveRoadmapTasks(parsed, idByName);
 
-    const roadmap = await withTransaction(async (client) => {
+    const roadmapId = await withTransaction(async (client) => {
+      const existing = await findLatestRoadmapWithTasks(client, userId);
+      if (existing !== null) {
+        await updateRoadmapContent(client, existing.roadmap.id, userId, {
+          careerPathId,
+          title: parsed.title,
+          description: parsed.description,
+        });
+        await deleteRoadmapTasks(client, existing.roadmap.id);
+        for (const task of resolvedTasks) {
+          await insertRoadmapTask(client, { roadmapId: existing.roadmap.id, ...task });
+        }
+        return existing.roadmap.id;
+      }
+
       const created = await insertRoadmap(client, {
         userId,
         careerPathId,
         title: parsed.title,
         description: parsed.description,
       });
-      for (const phase of ['30', '60', '90'] as const) {
-        const tasks = parsed.phases[phase] ?? [];
-        let order = 1;
-        for (const task of tasks) {
-          await insertRoadmapTask(client, {
-            roadmapId: created.id,
-            phase: phaseMap[phase],
-            title: task.title,
-            description: task.description,
-            skillId: idByName.get(task.skillName.toLowerCase()) ?? null,
-            estimatedMinutes: task.estimatedMinutes ?? null,
-            order,
-          });
-          order += 1;
-        }
+      for (const task of resolvedTasks) {
+        await insertRoadmapTask(client, { roadmapId: created.id, ...task });
       }
-      return created;
+      return created.id;
     });
 
     const full = await findCurrentRoadmapWithTasks(getPool(), userId);
-    return buildRoadmapResponse(roadmap.id, full);
+    return buildRoadmapResponse(roadmapId, full);
   }
 
   async getRoadmap(userId: string): Promise<RoadmapResponse> {
@@ -403,12 +503,7 @@ export class AiService {
     const skills = await listSkills(getPool());
     const byId = new Map(skills.map((s) => [s.id, s.name]));
     const stored = await listTransferableSkills(getPool(), userId);
-    return stored.map((item) => ({
-      skillId: item.skillId,
-      skillName: byId.get(item.skillId) ?? null,
-      reason: item.reason,
-      confidence: item.confidence,
-    }));
+    return toTransferableSkillResponse(stored, byId);
   }
 
   private async callWithRetry(input: { system: string; user: string }): Promise<unknown> {
@@ -442,8 +537,8 @@ function toCareerImpactResponse(row: CareerAnalysisRow): CareerImpactResponse {
   return {
     id: row.id,
     experienceId: row.experienceId,
-    aiImpactScore: row.aiImpactScore,
-    impactLevel: row.impactLevel,
+    score: row.aiImpactScore,
+    level: row.impactLevel,
     automationTasks: row.automationTasks,
     augmentedTasks: row.augmentedTasks,
     humanStrengths: row.humanStrengths,
@@ -451,6 +546,34 @@ function toCareerImpactResponse(row: CareerAnalysisRow): CareerImpactResponse {
     explanation: row.explanation,
     createdAt: row.createdAt,
   };
+}
+
+function toCareerRecommendationResponse(item: {
+  careerId: string;
+  careerName: string;
+  matchScore: number;
+  rank: number;
+  reason: string;
+}): CareerRecommendationResponse {
+  return {
+    careerId: item.careerId,
+    careerName: item.careerName,
+    matchScore: item.matchScore,
+    rank: item.rank,
+    reason: item.reason,
+  };
+}
+
+function toTransferableSkillResponse(
+  items: Array<{ skillId: string; reason: string; confidence: number }>,
+  byId: Map<string, string>,
+): TransferableSkillResponse[] {
+  return items.map((item) => ({
+    skillId: item.skillId,
+    skillName: byId.get(item.skillId) ?? null,
+    reason: item.reason,
+    confidence: item.confidence,
+  }));
 }
 
 /**
@@ -499,4 +622,63 @@ function buildRoadmapResponse(
       DAY_90: byPhase.DAY_90.map(brief),
     },
   };
+}
+
+const ROADMAP_PHASES: ReadonlyArray<{ key: '30' | '60' | '90'; phase: RoadmapPhase }> = [
+  { key: '30', phase: 'DAY_30' },
+  { key: '60', phase: 'DAY_60' },
+  { key: '90', phase: 'DAY_90' },
+];
+
+const MIN_TASKS_PER_PHASE = 3;
+const MAX_TASKS_PER_PHASE = 5;
+
+interface ResolvedRoadmapTask {
+  phase: RoadmapPhase;
+  title: string;
+  description: string;
+  skillId: string;
+  estimatedMinutes: number | null;
+  order: number;
+}
+
+/**
+ * Validates and resolves AI roadmap output before persistence
+ * (docs/AI_SPEC.md §19-§20, AGENTS.md §22). Every phase must contain 3-5
+ * tasks and every task must reference an approved catalogue skill by name.
+ * Unresolvable output is rejected (422) rather than persisted partially.
+ */
+function resolveRoadmapTasks(parsed: RoadmapOutput, idByName: Map<string, string>): ResolvedRoadmapTask[] {
+  const resolved: ResolvedRoadmapTask[] = [];
+  for (const { key, phase } of ROADMAP_PHASES) {
+    const tasks = parsed.phases[key] ?? [];
+    if (tasks.length < MIN_TASKS_PER_PHASE || tasks.length > MAX_TASKS_PER_PHASE) {
+      throw new AppError(
+        errorCodes.AI_OUTPUT_INVALID,
+        `The AI returned ${tasks.length} tasks for the ${key}-day phase. Expected ${MIN_TASKS_PER_PHASE}-${MAX_TASKS_PER_PHASE} tasks per phase.`,
+        422,
+      );
+    }
+    let order = 1;
+    for (const task of tasks) {
+      const skillId = idByName.get(task.skillName.toLowerCase());
+      if (skillId === undefined) {
+        throw new AppError(
+          errorCodes.AI_OUTPUT_INVALID,
+          `The AI referenced an unknown skill "${task.skillName}".`,
+          422,
+        );
+      }
+      resolved.push({
+        phase,
+        title: task.title,
+        description: task.description,
+        skillId,
+        estimatedMinutes: task.estimatedMinutes ?? null,
+        order,
+      });
+      order += 1;
+    }
+  }
+  return resolved;
 }

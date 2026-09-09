@@ -94,7 +94,8 @@ Use the existing project stack unless explicitly instructed otherwise.
 
 * PostgreSQL
 * Neon
-* Prisma ORM
+* `pg` connection pool
+* SQL migrations in `db/migrations/` (managed by `db/migrate.ts`)
 
 ### Validation
 
@@ -138,7 +139,7 @@ Service
    ↓
 Business Logic / AI Service
    ↓
-Prisma
+Model (parameterized SQL via pg)
    ↓
 PostgreSQL
 ```
@@ -196,8 +197,8 @@ backend/
 │   ├── SECURITY_SPEC.md
 │   └── DEVELOPMENT_PLAN.md
 │
-├── prisma/
-│   └── schema.prisma
+├── db/
+│   └── migrations/
 │
 ├── src/
 │   ├── app.ts
@@ -236,8 +237,14 @@ backend/
 │   │   └── analytics/
 │   │
 │   └── lib/
-│       ├── prisma.ts
+│       ├── db.ts
 │       └── scoring/
+│
+├── db/
+│   ├── migrations/
+│   ├── migrate.ts
+│   ├── seed.ts
+│   └── seed-demo.ts
 │
 └── tests/
 ```
@@ -337,11 +344,11 @@ Validate environment variables when the application starts.
 
 # 8. Database Rules
 
-Prisma is the only database access layer.
+Raw, parameterized `pg` SQL is the only database access layer.
 
 Do not write raw SQL unless explicitly required.
 
-Database access belongs in services/repositories where appropriate.
+Database access belongs in models (parameterized SQL in `src/models/`).
 
 ### Important rules
 
@@ -390,18 +397,18 @@ before returning protected organization data.
 
 ---
 
-# 9. Prisma Rules
+# 9. Database Model Rules
 
-Use Prisma-generated types.
+Use `pg` parameterized queries for all database access (`$1`, `$2`, ... placeholders).
 
-Do not manually duplicate database types when Prisma types already provide them.
+Use explicit Row interfaces in models.
+
+Do not manually duplicate schema definitions when the SQL migration already defines them.
 
 After schema changes:
 
 ```bash
-npx prisma format
-npx prisma validate
-npx prisma generate
+npm run db:migrate
 ```
 
 Use migrations appropriately.
@@ -411,7 +418,7 @@ Do not casually reset the database.
 Never run destructive commands such as:
 
 ```bash
-prisma migrate reset
+drop table/schema
 ```
 
 without explicit developer approval.
@@ -480,7 +487,7 @@ The backend must independently validate every request.
 
 Only accept documented fields.
 
-Do not blindly spread request bodies into Prisma:
+Do not blindly spread request bodies into models/database operations:
 
 ```text
 ...request.body
@@ -564,7 +571,7 @@ Do not expose:
 
 ```text
 database stack traces
-Prisma internals
+pg internals
 AI provider errors
 API keys
 server filesystem paths
@@ -1445,7 +1452,7 @@ Never silently modify the specification to match the code.
 For MVP:
 
 * Avoid unnecessary database queries.
-* Use Prisma `select` where appropriate.
+* Use targeted SQL selects in models where appropriate.
 * Avoid N+1 queries.
 * Avoid AI calls on every dashboard request.
 * Store/cache completed AI analyses where appropriate.
@@ -1496,7 +1503,7 @@ A feature is done when:
 * Errors are handled safely
 * Tests exist for important behavior
 * TypeScript passes
-* Prisma validation passes where applicable
+* Migrations are applied where applicable
 * No secrets are exposed
 * No unrelated files were changed
 * The feature integrates cleanly with existing modules
@@ -1512,7 +1519,7 @@ At minimum, when available:
 ```bash
 npm run typecheck
 npm test
-npx prisma validate
+npm run db:check
 ```
 
 If scripts are not yet configured, use the appropriate equivalent commands already available in the project.
@@ -1563,7 +1570,7 @@ Files:
 Verification:
 - npm run typecheck ✓
 - npm test ✓
-- npx prisma validate ✓
+- npm run db:check ✓
 ```
 
 ### Important

@@ -28,9 +28,9 @@ The roadmap helps the participant develop the skills they are currently missing
 for a target career, while building on the skills they already have.
 
 Follow these rules:
-- Recommend 3 to 5 tasks per phase (30, 60, 90 days). More tasks is fine, but
-  do not exceed 5 per phase.
-- Reference only approved skill names.
+- Return exactly 3 to 5 tasks per phase (30, 60, 90 days). A phase with fewer
+  than 3 or more than 5 tasks will be rejected by the backend.
+- Reference only approved skill names from the "Skills to develop" list.
 - Tasks must be practical, specific, and achievable by a busy working woman.
 - Do not claim the participant will get a job or degree by a certain date.
 - No fabricated qualifications, certifications, or guaranteed outcomes.
@@ -48,7 +48,7 @@ ${input.currentSkills.map((s) => `- ${s}`).join('\n')}
 Skills to develop (with priority):
 ${input.missingSkills.map((s) => `- ${s.name} (${s.priority})`).join('\n')}
 
-Respond with JSON in exactly this shape:
+Respond with JSON in exactly this shape. Each phase must contain 3 to 5 tasks:
 {
   "title": "A short title for the roadmap",
   "description": "One to two sentences summarising the roadmap.",
@@ -59,10 +59,55 @@ Respond with JSON in exactly this shape:
         "description": "Specific task instructions.",
         "skillName": "Skill name from the list to develop",
         "estimatedMinutes": 30
+      },
+      {
+        "title": "Second task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop",
+        "estimatedMinutes": 45
+      },
+      {
+        "title": "Third task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop"
       }
     ],
-    "60": [],
-    "90": []
+    "60": [
+      {
+        "title": "Task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop",
+        "estimatedMinutes": 60
+      },
+      {
+        "title": "Second task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop"
+      },
+      {
+        "title": "Third task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop"
+      }
+    ],
+    "90": [
+      {
+        "title": "Task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop"
+      },
+      {
+        "title": "Second task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop"
+      },
+      {
+        "title": "Third task title",
+        "description": "Specific task instructions.",
+        "skillName": "Skill name from the list to develop",
+        "estimatedMinutes": 90
+      }
+    ]
   }
 }
 Do not include skills the participant already has as the sole focus; the roadmap

@@ -3,7 +3,7 @@
 **Project:** HerNext
 **Team:** FiveFold
 **Role Covered:** Backend + AI
-**Stack:** Node.js + TypeScript + Fastify + Prisma + PostgreSQL/Neon
+**Stack:** Node.js + TypeScript + Fastify + `pg` + PostgreSQL/Neon + SQL migrations
 **Document Type:** Implementation Plan
 **Status:** MVP Development Plan
 
@@ -152,7 +152,7 @@ Fastify
 TypeScript
 dotenv
 Zod
-Prisma
+pg
 PostgreSQL/Neon
 CORS
 Helmet
@@ -167,7 +167,7 @@ Create:
 ```text
 src/
 tests/
-prisma/
+db/migrations/
 ```
 
 Create base server.
@@ -228,8 +228,8 @@ src/
 │   ├── organizations/
 │   └── analytics/
 └── lib/
-    ├── scoring/
-    └── prisma.ts
+    ├── db.ts
+    └── scoring/
 ```
 
 ---
@@ -255,33 +255,25 @@ Keep modules simple.
 
 # 8. Phase 2 — Database
 
-Implement the Prisma schema based on:
+Create the SQL migrations based on:
 
 ```text
 docs/DATABASE_SCHEMA.md
 ```
 
-Run:
+Apply them:
 
 ```text
-npx prisma format
+npm run db:migrate
 ```
 
-Then create the initial migration.
-
-Use:
+Verify against the live database:
 
 ```text
-npx prisma migrate dev
+npm run db:check
 ```
 
-for development.
-
-Verify:
-
-```text
-npx prisma generate
-```
+Use `db/migrations/` numbered SQL files for all schema changes.
 
 ---
 
@@ -1234,10 +1226,11 @@ npm run build
 npm run start
 npm run test
 npm run test:watch
-npm run lint
-npm run prisma:generate
-npm run prisma:migrate
-npm run prisma:seed
+npm run typecheck
+npm run db:migrate
+npm run db:seed
+npm run db:seed:demo
+npm run db:check
 ```
 
 Exact commands may vary according to the final package configuration.
@@ -1308,7 +1301,7 @@ Foundation:
 ```text
 Fastify
 TypeScript
-Prisma
+pg
 Neon
 Security plugins
 Error handling
@@ -1324,7 +1317,7 @@ Database:
 Schema
 Migration
 Seed data
-Prisma client
+Models (parameterized SQL)
 ```
 
 Begin authentication.

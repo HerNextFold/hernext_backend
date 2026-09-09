@@ -52,7 +52,7 @@ export function errorToEnvelope(error: unknown): {
 }
 
 /**
- * Centralised error handler. Never leaks stack traces, Prisma/database
+ * Centralised error handler. Never leaks stack traces, database
  * internals, AI provider details or filesystem paths to clients.
  *
  * Detailed diagnostics for unexpected errors are written to the server log

@@ -70,5 +70,21 @@ export const aiCareerIdParamsSchema = z.object({
   careerId: z.string().uuid('A valid career id is required'),
 });
 
+/** `?regenerate=true` forces a fresh AI analysis instead of reusing persisted output. */
+export const regenerateQuerySchema = z.object({
+  regenerate: z.coerce.boolean().optional(),
+});
+
+export const limitQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(20).optional(),
+});
+
+export const roadmapGenerateSchema = z.object({
+  careerPathId: z.string().uuid('A valid career id is required'),
+});
+
 export type AiExperienceIdParams = z.infer<typeof aiExperienceIdParamsSchema>;
 export type AiCareerIdParams = z.infer<typeof aiCareerIdParamsSchema>;
+export type RegenerateQuery = z.infer<typeof regenerateQuerySchema>;
+export type LimitQuery = z.infer<typeof limitQuerySchema>;
+export type RoadmapGenerateBody = z.infer<typeof roadmapGenerateSchema>;

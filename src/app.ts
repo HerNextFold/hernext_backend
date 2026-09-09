@@ -11,15 +11,24 @@ import { registerAuth } from './plugins/auth.js';
 import { registerCors } from './plugins/cors.js';
 import { registerHelmet } from './plugins/helmet.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
+import { registerRouteRegistry } from './plugins/route-registry.js';
 import { registerSwagger } from './plugins/swagger.js';
 import { ExperienceService } from './modules/experiences/experiences.service.js';
 import { registerExperienceModule } from './modules/experiences/experiences.routes.js';
+import { ProfileService } from './modules/profiles/profile.service.js';
+import { registerProfileModule } from './modules/profiles/profile.routes.js';
 import { AiService } from './modules/ai/ai.service.js';
 import { registerAiModule } from './modules/ai/ai.routes.js';
 import { AchievementService } from './modules/achievements/achievements.service.js';
 import { registerAchievementModule } from './modules/achievements/achievements.routes.js';
 import { ProgressService } from './modules/progress/progress.service.js';
 import { registerProgressModule } from './modules/progress/progress.routes.js';
+import { ChallengeService } from './modules/challenges/challenges.service.js';
+import { registerChallengeModule } from './modules/challenges/challenges.routes.js';
+import { EvidenceService } from './modules/evidence/evidence.service.js';
+import { registerEvidenceModule } from './modules/evidence/evidence.routes.js';
+import { PassportService } from './modules/passport/passport.service.js';
+import { registerPassportModule } from './modules/passport/passport.routes.js';
 import { GeminiProvider } from './modules/ai/providers/gemini.provider.js';
 import { OpenAiCompatibleProvider } from './modules/ai/providers/openai-compatible.provider.js';
 import { UnconfiguredProvider } from './modules/ai/providers/llm.provider.js';
@@ -38,6 +47,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   const app = Fastify({ logger });
 
+  registerRouteRegistry(app);
   registerHelmet(app);
   registerCors(app, config.frontendUrl);
   registerSwagger(app);
@@ -48,11 +58,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const authService = new AuthService({
     signAccessToken: (user) =>
       app.jwt.sign({ id: user.id, role: user.role }, { expiresIn: config.jwtExpiresIn }),
+    nodeEnv: config.nodeEnv,
   });
   registerAuthModule(app, authService);
 
   const experienceService = new ExperienceService();
   registerExperienceModule(app, experienceService);
+
+  registerProfileModule(app, new ProfileService());
 
   // Provider selection is configuration-driven (docs/AI_SPEC.md §16). All
   // providers implement the same LLMProvider interface, so the AI service
@@ -70,12 +83,54 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   registerProgressModule(app, new ProgressService(achievementService));
 
+  registerChallengeModule(app, new ChallengeService(achievementService));
+  registerEvidenceModule(app, new EvidenceService());
+  registerPassportModule(app, new PassportService(achievementService));
+
   // Liveness + database connectivity probe. The database result is advisory;
   // the endpoint never fails because of an unavailable database.
-  app.get('/health', async (_request, reply) => {
-    const database = await checkDatabaseConnection();
-    return sendOk(reply, { status: 'ok', database: database ? 'connected' : 'disconnected' });
-  });
+  app.get(
+    '/health',
+    {
+      schema: {
+        tags: ['Health'],
+        summary: 'Liveness and database connectivity probe',
+        description: 'Public endpoint. Returns the documented success envelope; the database field is advisory.',
+        operationId: 'healthCheck',
+        response: {
+          200: {
+            description: 'Service is healthy',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['success', 'data'],
+                  additionalProperties: false,
+                  properties: {
+                    success: { type: 'boolean', const: true },
+                    data: {
+                      type: 'object',
+                      required: ['status', 'database'],
+                      additionalProperties: false,
+                      properties: {
+                        status: { type: 'string', const: 'ok' },
+                        database: { type: 'string', enum: ['connected', 'disconnected'] },
+                      },
+                    },
+                    message: { type: 'string', description: 'Optional human-readable message' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (_request, reply) => {
+      const database = await checkDatabaseConnection();
+      return sendOk(reply, { status: 'ok', database: database ? 'connected' : 'disconnected' });
+    },
+  );
 
   app.setErrorHandler(handleError);
 

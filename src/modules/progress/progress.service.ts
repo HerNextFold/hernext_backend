@@ -7,15 +7,8 @@ import {
   calculatePhaseProgress,
   calculateRoadmapProgress,
 } from '../../lib/scoring/progress.js';
-import {
-  calculateCareerReadinessScore,
-  calculateEvidenceScore,
-  calculateExperienceScore,
-  calculateReadinessSkillsScore,
-  readinessLabel,
-} from '../../lib/scoring/readiness.js';
+import { computeReadinessFromMetrics } from '../../lib/scoring/readiness-orchestrator.js';
 import { selectNextAction, type NextAction } from '../../lib/scoring/next-action.js';
-import { findCareerWithSkills } from '../../models/catalogue.model.js';
 import {
   findOwnedTask,
   findTasksForTask,
@@ -68,7 +61,7 @@ export class ProgressService {
   async getProgress(userId: string): Promise<ProgressResponse> {
     const metrics = await loadJourneyMetrics(getPool(), userId);
     const progress = this.deriveProgress(metrics);
-    const { score, label } = await this.deriveReadiness(metrics);
+    const readiness = await computeReadinessFromMetrics(getPool(), metrics);
     return {
       overallProgress: progress.overallProgress,
       roadmapProgress: progress.roadmapProgress,
@@ -76,19 +69,19 @@ export class ProgressService {
       evidenceCount: metrics.evidenceCount,
       skillsDeveloped: metrics.userSkills.length,
       skillsRemaining: metrics.skillGapCountForTarget,
-      readinessScore: score,
-      readinessLabel: label,
+      readinessScore: readiness.score,
+      readinessLabel: readiness.label,
     };
   }
 
   async getSummary(userId: string): Promise<ProgressSummaryResponse> {
     const metrics = await loadJourneyMetrics(getPool(), userId);
     const progress = this.deriveProgress(metrics);
-    const { score, label } = await this.deriveReadiness(metrics);
+    const readiness = await computeReadinessFromMetrics(getPool(), metrics);
     return {
       currentCareerGoal: metrics.targetCareerName,
-      careerReadiness: score,
-      readinessLabel: label,
+      careerReadiness: readiness.score,
+      readinessLabel: readiness.label,
       roadmapProgress: progress.roadmapProgress,
       aiImpact: metrics.latestAiImpact
         ? { score: metrics.latestAiImpact.score, level: metrics.latestAiImpact.level }
@@ -183,36 +176,6 @@ export class ProgressService {
       totalStages: TOTAL_JOURNEY_STAGES,
     });
     return { overallProgress, roadmapProgress, challengeProgress };
-  }
-
-  private async deriveReadiness(
-    metrics: JourneyMetrics,
-  ): Promise<{ score: number; label: string }> {
-    const userSkillIds = new Set(metrics.userSkills.map((s) => s.skillId));
-    let skillsScore = 0;
-    if (metrics.targetCareerId !== null) {
-      const withSkills = await findCareerWithSkills(getPool(), metrics.targetCareerId);
-      if (withSkills !== null) {
-        skillsScore = calculateReadinessSkillsScore({
-          careerSkills: withSkills.skills.map((s) => ({ skillId: s.skillId, importance: s.importance })),
-          userSkillIds,
-        });
-      }
-    }
-
-    const score = calculateCareerReadinessScore({
-      experience: calculateExperienceScore({
-        relevantYears: metrics.relevantYears,
-        hasAnyRecords: metrics.hasCareerProfile || metrics.hasExperienceRecords,
-      }),
-      skills: skillsScore,
-      aiReadiness: metrics.latestAiImpact?.score ?? 0,
-      evidence: calculateEvidenceScore({
-        evidenceCount: metrics.evidenceCount,
-        verifiedEvidenceCount: metrics.verifiedEvidenceCount,
-      }),
-    });
-    return { score, label: readinessLabel(score) };
   }
 
   private buildNextActionState(metrics: JourneyMetrics) {

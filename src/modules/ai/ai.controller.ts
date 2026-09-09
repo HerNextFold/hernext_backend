@@ -4,6 +4,9 @@ import { parseOrThrow } from '../../common/utils/validate.js';
 import {
   aiCareerIdParamsSchema,
   aiExperienceIdParamsSchema,
+  limitQuerySchema,
+  regenerateQuerySchema,
+  roadmapGenerateSchema,
 } from './ai.schemas.js';
 import type { AiService } from './ai.service.js';
 
@@ -17,7 +20,8 @@ export class AiController {
 
   async runCareerImpact(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
     const { experienceId } = parseOrThrow(aiExperienceIdParamsSchema, request.params);
-    const data = await this.service.runCareerImpact(request.user.id, experienceId);
+    const { regenerate } = parseOrThrow(regenerateQuerySchema, request.query);
+    const data = await this.service.runCareerImpact(request.user.id, experienceId, regenerate);
     return sendOk(reply, data);
   }
 
@@ -29,7 +33,8 @@ export class AiController {
 
   async runTransferableSkills(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
     const { experienceId } = parseOrThrow(aiExperienceIdParamsSchema, request.params);
-    const data = await this.service.runTransferableSkills(request.user.id, experienceId);
+    const { regenerate } = parseOrThrow(regenerateQuerySchema, request.query);
+    const data = await this.service.runTransferableSkills(request.user.id, experienceId, regenerate);
     return sendOk(reply, { skills: data });
   }
 
@@ -43,15 +48,34 @@ export class AiController {
     return sendOk(reply, { recommendations: data });
   }
 
+  async getCareerRecommendations(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
+    const { limit } = parseOrThrow(limitQuerySchema, request.query);
+    const data = await this.service.getCareerRecommendations(request.user.id, limit);
+    return sendOk(reply, { recommendations: data });
+  }
+
   async runSkillGaps(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
     const { careerId } = parseOrThrow(aiCareerIdParamsSchema, request.params);
     const data = await this.service.runSkillGaps(request.user.id, careerId);
     return sendOk(reply, data);
   }
 
+  async getSkillGaps(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
+    const { careerId } = parseOrThrow(aiCareerIdParamsSchema, request.params);
+    const data = await this.service.getSkillGaps(request.user.id, careerId);
+    return sendOk(reply, data);
+  }
+
   async runRoadmap(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
     const { careerId } = parseOrThrow(aiCareerIdParamsSchema, request.params);
-    const data = await this.service.runRoadmap(request.user.id, careerId);
+    const { regenerate } = parseOrThrow(regenerateQuerySchema, request.query);
+    const data = await this.service.runRoadmap(request.user.id, careerId, regenerate);
+    return sendOk(reply, data);
+  }
+
+  async generateRoadmap(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
+    const { careerPathId } = parseOrThrow(roadmapGenerateSchema, request.body);
+    const data = await this.service.runRoadmap(request.user.id, careerPathId);
     return sendOk(reply, data);
   }
 

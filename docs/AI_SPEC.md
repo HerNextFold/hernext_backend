@@ -966,7 +966,7 @@ Never:
 ```text
 LLM response
       ↓
-Prisma.create()
+Direct database insert
 ```
 
 without validation.

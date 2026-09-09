@@ -10,6 +10,8 @@ function createPool(databaseUrl: string, sslRequired: boolean): Pool {
     connectionTimeoutMillis: 10000,
     query_timeout: 15000,
     statement_timeout: 15000,
+    keepAlive: true,
+    idleTimeoutMillis: 0,
   };
 
   // Neon requires SSL. If the connection string does not already request a

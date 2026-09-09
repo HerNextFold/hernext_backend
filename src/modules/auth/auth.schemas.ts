@@ -17,6 +17,17 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required').max(128),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email('A valid email is required').max(254),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(32, 'A valid reset token is required').max(512),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+});
+
 export type RegisterSchema = typeof registerSchema;
 export type RegisterBody = z.infer<typeof registerSchema>;
 export type LoginBody = z.infer<typeof loginSchema>;
+export type ForgotPasswordBody = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordBody = z.infer<typeof resetPasswordSchema>;

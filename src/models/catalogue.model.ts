@@ -47,6 +47,21 @@ export async function listSkills(db: Db | undefined): Promise<SkillRow[]> {
   );
 }
 
+/** Loads every skill belonging to any of the given categories. */
+export async function listSkillsInCategories(
+  db: Db | undefined,
+  categories: readonly string[],
+): Promise<SkillRow[]> {
+  if (categories.length === 0) {
+    return [];
+  }
+  return queryText<SkillRow>(
+    db ?? getPool(),
+    'SELECT * FROM "skills" WHERE "category" = ANY($1::skill_category[]) ORDER BY "name" ASC',
+    [categories],
+  );
+}
+
 export async function listCareers(db: Db | undefined): Promise<CareerPathRow[]> {
   return queryText<CareerPathRow>(
     db ?? getPool(),

@@ -99,6 +99,12 @@ Use standard HTTP status codes.
 | 500    | Internal server error                    |
 | 503    | External dependency unavailable          |
 
+> Statuses actually emitted today: `200`, `201`, `400`, `401`, `403`, `404`,
+> `409`, `422`, `429`, `500`, `503`. `204` is reserved for future no-body
+> responses and is not currently returned. `422` is used when structured AI
+> output cannot be validated; `503` is used when the AI provider is
+> unavailable.
+
 ---
 
 # 5. Authentication
@@ -261,6 +267,22 @@ Always return a generic success message to prevent account enumeration.
 
 For the hackathon MVP, email delivery may be mocked if a real email provider is not available.
 
+#### Development-only reset token
+
+When the backend runs outside `production`, the response additionally returns the
+raw one-time token so demo/QA flows can complete the reset without an email
+provider. The raw token is never returned in production, persisted, or logged.
+
+```json
+{
+  "success": true,
+  "message": "If an account exists, password reset instructions have been sent.",
+  "data": {
+    "resetToken": "dev-only-token"
+  }
+}
+```
+
 ---
 
 # 10. POST `/auth/reset-password`
@@ -414,19 +436,24 @@ AI endpoints are authenticated and operate on participant-owned data.
 
 ---
 
-# 15. POST `/ai/career-impact`
+# 15. POST `/ai/career-impact/:experienceId`
 
-Analyzes how AI may affect the participant's current work.
+Analyzes how AI may affect the participant's current work for a specific
+experience.
 
-### Request
+### Path Parameter
 
-```json
-{
-  "experienceId": "uuid"
-}
+```text
+experienceId  the UUID of an experience owned by the authenticated user
 ```
 
-The backend retrieves the experience from the authenticated user.
+### Query Parameters
+
+Optional:
+
+```text
+regenerate=true   force a new AI analysis instead of reusing the saved result
+```
 
 ### Processing
 
@@ -453,6 +480,10 @@ Save CareerAnalysis
   ↓
 Return result
 ```
+
+The saved analysis is reused when the experience has not changed since it was
+created (no AI call, avoids rate limits). `regenerate=true` always computes a
+new assessment.
 
 ### Response
 
@@ -546,16 +577,22 @@ assessment has been saved for that experience.
 
 ---
 
-# 16. POST `/ai/transferable-skills`
+# 16. POST `/ai/transferable-skills/:experienceId`
 
-Identifies professional skills demonstrated by an experience.
+Identifies professional skills demonstrated by a specific experience.
 
-### Request
+### Path Parameter
 
-```json
-{
-  "experienceId": "uuid"
-}
+```text
+experienceId  the UUID of an experience owned by the authenticated user
+```
+
+### Query Parameters
+
+Optional:
+
+```text
+regenerate=true   force a new AI analysis instead of reusing the saved result
 ```
 
 ### Response
@@ -576,23 +613,31 @@ Identifies professional skills demonstrated by an experience.
 }
 ```
 
-AI-derived skills must be stored as `AI_DERIVED`.
+AI-derived skills must be stored as `AI_DERIVED`. The saved transferable skills
+are reused when the experience has not changed since they were created; an
+explicit regenerate replaces them.
+
+---
+
+# 16a. GET `/ai/transferable-skills`
+
+Returns the transferable skills persisted for the authenticated participant
+without running an AI analysis. Returns an empty list when no analysis has been
+saved.
+
+### Response
+
+Identical shape to `POST /ai/transferable-skills/:experienceId`.
 
 ---
 
 # 17. Career Recommendations
 
-## GET `/careers/recommendations`
+## POST `/ai/career-recommendations`
 
-Returns recommended careers based on the user's profile, experiences and skills.
-
-### Query Parameters
-
-Optional:
-
-```text
-limit=5
-```
+Recalculates and persists the deterministic career match scores for the
+authenticated participant.This performs no AI call - matching is backend
+logic grounded in the career catalogue (docs/AI_SPEC.md §15, docs/SCORING_LOGIC.md §7).
 
 ### Response
 
@@ -613,6 +658,23 @@ limit=5
 }
 ```
 
+## GET `/careers/recommendations`
+
+Returns the persisted recommendations (recomputing on the fly only when none
+have been saved yet). No AI call and no persistence.
+
+### Query Parameters
+
+Optional:
+
+```text
+limit=5
+```
+
+### Response
+
+Identical shape to `POST /ai/career-recommendations`.
+
 ### Important
 
 Career recommendations must come from the HerNext career catalogue.
@@ -621,9 +683,19 @@ The AI may explain recommendations but must not invent arbitrary careers.
 
 ---
 
-# 18. GET `/careers/:careerId/skill-gaps`
+# 18. Skill Gaps
 
-Returns the skill gap for a selected career.
+## POST `/ai/skill-gaps/:careerId`
+
+Computes and persists the skill gap for a selected career. No AI call - gaps are
+derived deterministically from the user's skills versus the career's required
+skills.
+
+### Path Parameter
+
+```text
+careerId  the UUID of a career from the approved catalogue
+```
 
 ### Response
 
@@ -640,7 +712,7 @@ Returns the skill gap for a selected career.
         "skillId": "uuid",
         "skillName": "Transaction Processing",
         "status": "HAS_SKILL",
-        "priority": null
+        "priority": "HIGH"
       },
       {
         "skillId": "uuid",
@@ -652,6 +724,22 @@ Returns the skill gap for a selected career.
   }
 }
 ```
+
+## GET `/careers/:careerId/skill-gaps`
+
+Returns the skill gap for a selected career without persisting anything. No AI
+call.
+
+### Path Parameter
+
+```text
+careerId  the UUID of a career from the approved catalogue
+```
+
+### Response
+
+Identical shape to `POST /ai/skill-gaps/:careerId`, including the read-only
+`status`/`priority` fields described in docs/SCORING_LOGIC.md §9.
 
 Skill status is determined from the user's skills versus the career's required skills.
 
@@ -686,10 +774,13 @@ Career Interests
         ↓
 AI Roadmap Suggestions
         ↓
-Validation
+Validation (3-5 tasks per phase, catalogue skill names only)
         ↓
 Save Roadmap
 ```
+
+When a current roadmap already exists for the same career it is reused (no AI
+call); generating for a different career replaces the roadmap content in place.
 
 ### Response
 
@@ -697,32 +788,74 @@ Save Roadmap
 {
   "success": true,
   "data": {
-    "id": "uuid",
-    "title": "Your Fintech Operations Career Roadmap",
-    "description": "...",
-    "phases": [
-      {
-        "phase": "DAY_30",
-        "tasks": []
-      },
-      {
-        "phase": "DAY_60",
-        "tasks": []
-      },
-      {
-        "phase": "DAY_90",
-        "tasks": []
-      }
-    ]
+    "roadmap": {
+      "id": "uuid",
+      "careerPathId": "uuid",
+      "title": "Your Fintech Operations Career Roadmap",
+      "description": "...",
+      "createdAt": "2026-09-06T..."
+    },
+    "phases": {
+      "DAY_30": [],
+      "DAY_60": [],
+      "DAY_90": []
+    }
   }
 }
 ```
+
+## POST `/ai/roadmap/:careerId`
+
+Same behaviour as `POST /roadmaps/generate` with the career carried as a path
+parameter.
+
+### Path Parameter
+
+```text
+careerId  the UUID of a career from the approved catalogue
+```
+
+### Query Parameters
+
+Optional:
+
+```text
+regenerate=true   force a new AI roadmap instead of reusing the current one
+```
+
+### Response
+
+Identical shape to `POST /roadmaps/generate`.
 
 ---
 
 # 20. GET `/roadmaps/current`
 
-Returns the participant's active roadmap.
+Returns the participant's active roadmap with its 30/60/90-day tasks. No AI
+call. Returns `404 RESOURCE_NOT_FOUND` when the user has no generated roadmap
+yet.
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "roadmap": {
+      "id": "uuid",
+      "careerPathId": "uuid",
+      "title": "Your Fintech Operations Career Roadmap",
+      "description": "...",
+      "createdAt": "2026-09-06T..."
+    },
+    "phases": {
+      "DAY_30": [],
+      "DAY_60": [],
+      "DAY_90": []
+    }
+  }
+}
+```
 
 ---
 
@@ -924,11 +1057,19 @@ skillId=uuid
 difficulty=BEGINNER
 ```
 
+### Authentication
+
+Required. Each challenge includes its linked `skills` and the authenticated `latestAttempt` (or `null`).
+
 ---
 
 ## GET `/challenges/:id`
 
 Returns challenge details.
+
+### Authentication
+
+Required. Returns a `404` for unknown challenge ids and a `400` for malformed ids.
 
 ---
 
@@ -938,7 +1079,7 @@ Submits a challenge answer.
 
 ### Request
 
-Example:
+Only documented answer fields are accepted (`strict` validation). Financial Reconciliation Challenge:
 
 ```json
 {
@@ -946,10 +1087,29 @@ Example:
     "totalCredits": 250000,
     "totalDebits": 245000,
     "difference": 5000,
-    "discrepancyFound": true
+    "discrepancyFound": true,
+    "explanation": "A debit of 5,000 was recorded on the statement but is missing from the ledger."
   }
 }
 ```
+
+Customer Payment Resolution Challenge:
+
+```json
+{
+  "answer": {
+    "steps": [
+      "Verify the transaction status",
+      "Contact the customer",
+      "Check the payment gateway",
+      "Push a refund to reverse the charge",
+      "Confirm the outcome with the customer"
+    ]
+  }
+}
+```
+
+Unknown answer fields, wrong shapes and unsupported challenges are rejected with `400`/`404`.
 
 ### Processing
 
@@ -958,15 +1118,15 @@ Submission
    ↓
 Validate input
    ↓
-Evaluate challenge
+Evaluate challenge (deterministic rules, docs/AI_SPEC.md §22 - no LLM)
    ↓
 Calculate score
    ↓
-Pass/fail
+Pass/fail (threshold 70/100)
    ↓
 Save submission
    ↓
-Create evidence if appropriate
+On PASSED: upsert challenge skills (source CHALLENGE) and create evidence per skill (status PENDING, deduplicated)
    ↓
 Update achievements
 ```
@@ -979,11 +1139,14 @@ Update achievements
   "data": {
     "submissionId": "uuid",
     "status": "PASSED",
-    "score": 90,
-    "feedback": "You correctly identified the transaction discrepancy."
+    "score": 100,
+    "feedback": "You correctly reconciled the fictional transaction data and identified the discrepancy.",
+    "evidenceCreated": 4
   }
 }
 ```
+
+`evidenceCreated` is the number of evidence rows created by this submission (0 on a fail). Repeated passes never duplicate evidence.
 
 ---
 
@@ -991,15 +1154,33 @@ Update achievements
 
 ## GET `/evidence`
 
-Returns the user's evidence.
+Returns the authenticated user's evidence (newest first). Requires authentication.
 
----
+Example item:
+
+```json
+{
+  "id": "uuid",
+  "challengeId": "uuid",
+  "skillId": "uuid",
+  "skillName": "Reconciliation",
+  "title": "Financial Reconciliation Challenge",
+  "description": "Given fictional transaction data...",
+  "result": "PASSED (100/100)",
+  "status": "PENDING",
+  "createdAt": "2026-09-08T..."
+}
+```
+
+Evidence is never created empty: fresh participants receive `[]`.
 
 ## GET `/evidence/:id`
 
 Returns one evidence item.
 
-The user must own the evidence.
+### Authentication & Authorization
+
+The user must own the evidence (enforced in the query). Missing, malformed and other users' evidence ids all return the documented error - a `404` for missing/foreign ids, `400` for non-uuid ids, so no information about other participants leaks.
 
 ---
 
@@ -1009,11 +1190,27 @@ The user must own the evidence.
 
 Returns the authenticated user's Career Passport.
 
+### Rules
+
+Returns `404` when no passport has been generated yet - "generate your passport" is a real journey step. The response is the live aggregated view plus the passport row fields (`id`, `slug`, `isPublic`, `createdAt`).
+
 ---
 
 # 30. POST `/passport/generate`
 
 Creates or updates the participant's Career Passport.
+
+### Request
+
+Optional body - a passport is private by default and only becomes public through explicit opt-in (docs/SECURITY_SPEC.md §36):
+
+```json
+{
+  "isPublic": true
+}
+```
+
+Unknown body fields are rejected with `400`.
 
 ### Processing
 
@@ -1032,7 +1229,7 @@ Achievements
 Roadmap Progress
 ```
 
-The passport does not need an LLM to assemble the core data.
+The passport does not need an LLM to assemble the core data. The slug is stable across regenerations (a shared link never breaks), URL-safe, and contains no internal database ids. PASSPORT_READY is awarded when appropriate.
 
 ### Response
 
@@ -1041,12 +1238,19 @@ The passport does not need an LLM to assemble the core data.
   "success": true,
   "data": {
     "id": "uuid",
-    "slug": "aisha-abdullah",
+    "slug": "aisha-abdullah-a1b2c3",
     "isPublic": false,
+    "name": "Aisha Abdullah",
+    "country": "Nigeria",
+    "headline": "Aspiring Fintech Operations Associate",
     "profile": {},
+    "experience": [],
     "skills": [],
-    "careerGoal": {},
-    "readiness": 78,
+    "careerGoal": "Fintech Operations Associate",
+    "readiness": { "score": 78, "label": "Developing", "breakdown": {} },
+    "roadmapProgress": 0,
+    "phaseProgress": {},
+    "challenges": [],
     "evidence": [],
     "achievements": []
   }
@@ -1065,7 +1269,7 @@ Not required.
 
 ### Security
 
-Only explicitly public information may be returned.
+A passport is only visible publicly when the participant explicitly set `isPublic: true`. Only intentionally public information may be returned - the backend maps the full view through an explicit allowlist.
 
 Never expose:
 
@@ -1075,8 +1279,11 @@ email
 private organization information
 private program information
 private analytics
-internal IDs where unnecessary
+internal database IDs (evidence/challenge/passport/user)
+private profile fields
 ```
+
+Missing and non-public slugs return the same `404` so the endpoint leaks nothing. Malformed slugs return `400`.
 
 ### Response
 
@@ -1091,6 +1298,10 @@ internal IDs where unnecessary
     "skills": [],
     "careerGoal": "Fintech Operations Associate",
     "readiness": 78,
+    "readinessLabel": "Developing",
+    "roadmapProgress": 0,
+    "phaseProgress": {},
+    "challenges": [{ "title": "Financial Reconciliation Challenge" }],
     "evidence": [],
     "achievements": []
   }
@@ -1319,6 +1530,26 @@ Service
 ```
 
 The exact middleware/plugin order may vary according to Fastify architecture, but validation and authorization must happen before sensitive business operations.
+
+### OpenAPI documentation (Phase 5C)
+
+* Every API route carries an OpenAPI 3.1 `schema` block used **only for documentation**.
+* The swagger plugin installs a pass-through validator compiler and a pass-through
+  response serializer compiler, so Fastify/Ajv never validates request payloads
+  and fast-json-stringify never strips or checks response payloads against those
+  schemas. Zod (via `parseOrThrow`) remains the single runtime validation layer,
+  and the error handler is the single runtime response layer. This guarantees a
+  documented schema can never change runtime behaviour.
+* Interactive UI is served at `/docs` (relative to the running backend); the raw
+  OpenAPI document is available at `/docs/json` and `/docs/yaml`. Documented paths
+  are absolute (`/api/v1/...`), so the `/docs` UI resolves them at the backend's
+  own base URL.
+* Protected operations declare `security: bearerAuth` and a `401` response; the
+  documented bearer token is the JWT returned by `POST /auth/login` or
+  `POST /auth/register`.
+* Kept aligned with this contract; `tests/openapi.documentation.test.ts` verifies
+  that every registered API route (including `/health`) is documented, that path
+  params and request bodies are declared, and that enums match the Zod schemas.
 
 ---
 
@@ -1557,7 +1788,7 @@ Controller
  ↓
 Service
  ↓
-Repository/Prisma
+Model (parameterized SQL via pg)
 ```
 
 For AI:
@@ -1575,7 +1806,7 @@ Validated AI Output
  ↓
 Business Logic
  ↓
-Prisma
+pg Model
 ```
 
 Do not place large business rules directly inside route handlers.

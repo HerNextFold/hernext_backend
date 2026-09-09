@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { closeDb, initDb, queryText, withTransaction } from '../src/lib/db.js';
 import { loadEnv } from '../src/config/env.js';
 import type { Db } from '../src/lib/db.js';
@@ -194,7 +196,7 @@ const CAREERS: SeedCareer[] = [
   },
 ];
 
-async function seedSkills(client: Db): Promise<Map<string, string>> {
+export async function seedSkills(client: Db): Promise<Map<string, string>> {
   const idByName = new Map<string, string>();
   for (const skill of SKILLS) {
     await queryText(
@@ -212,7 +214,7 @@ async function seedSkills(client: Db): Promise<Map<string, string>> {
   return idByName;
 }
 
-async function seedCareers(client: Db, skillIds: Map<string, string>): Promise<void> {
+export async function seedCareers(client: Db, skillIds: Map<string, string>): Promise<void> {
   for (const career of CAREERS) {
     await queryText(
       client,
@@ -325,7 +327,7 @@ const CHALLENGES: SeedChallenge[] = [
   },
 ];
 
-async function seedAchievements(client: Db): Promise<void> {
+export async function seedAchievements(client: Db): Promise<void> {
   for (const achievement of ACHIEVEMENTS) {
     const existing = await queryText<{ id: string }>(
       client,
@@ -349,7 +351,7 @@ async function seedAchievements(client: Db): Promise<void> {
   }
 }
 
-async function seedChallenges(client: Db, skillIds: Map<string, string>): Promise<void> {
+export async function seedChallenges(client: Db, skillIds: Map<string, string>): Promise<void> {
   for (const challenge of CHALLENGES) {
     const existing = await queryText<{ id: string }>(
       client,
@@ -395,20 +397,35 @@ async function seedChallenges(client: Db, skillIds: Map<string, string>): Promis
   }
 }
 
+/**
+ * Seeds the full approved catalogue. Used by `npm run db:seed` and reused by the
+ * demo journey seeder (db/seed-demo.ts) so demo data always depends on a valid
+ * catalogue.
+ */
+export async function seedCatalogues(client: Db): Promise<void> {
+  const skillIds = await seedSkills(client);
+  await seedCareers(client, skillIds);
+  await seedAchievements(client);
+  await seedChallenges(client, skillIds);
+}
+
 async function main(): Promise<void> {
   const config = loadEnv();
   initDb(config);
   await withTransaction(async (client) => {
-    const skillIds = await seedSkills(client);
-    await seedCareers(client, skillIds);
-    await seedAchievements(client);
-    await seedChallenges(client, skillIds);
+    await seedCatalogues(client);
   });
   console.log('Catalogue seeded.');
   await closeDb();
 }
 
-main().catch((error: unknown) => {
-  console.error('Seeding failed:', error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+// Only run when invoked directly (`npm run db:seed`). When imported by
+// db/seed-demo.ts, main() below would otherwise start a second transaction on
+// the shared pool and close it while the demo seed is running.
+const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isMain) {
+  main().catch((error: unknown) => {
+    console.error('Seeding failed:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

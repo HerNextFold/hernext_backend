@@ -5,6 +5,7 @@ import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/config/env.js';
 import { checkDatabaseConnection, closeDb, getPool, initDb, queryRow, queryText } from '../src/lib/db.js';
 import { deleteUserByEmail, type UserRow } from '../src/models/user.model.js';
+import { updateExperience } from '../src/models/experience.model.js';
 import { AiService } from '../src/modules/ai/ai.service.js';
 import { LLMProviderError, type LLMProvider } from '../src/modules/ai/providers/llm.provider.js';
 
@@ -105,10 +106,10 @@ describe.runIf(runDbTests)('AI service (integration, mocked provider)', () => {
 
     const result = await service.runCareerImpact(user.id, experienceId);
     expect(result.experienceId).toBe(experienceId);
-    expect(typeof result.aiImpactScore).toBe('number');
-    expect(result.aiImpactScore).toBeGreaterThanOrEqual(0);
-    expect(result.aiImpactScore).toBeLessThanOrEqual(100);
-    expect(['LOW', 'MODERATE', 'HIGH']).toContain(result.impactLevel);
+    expect(typeof result.score).toBe('number');
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+    expect(['LOW', 'MODERATE', 'HIGH']).toContain(result.level);
     expect(result.automationTasks).toContain('Recording daily transactions');
 
     const persisted = await queryRow<{ n: number }>(
@@ -265,11 +266,10 @@ describe.runIf(runDbTests)('AI service (integration, mocked provider)', () => {
       throw new Error('Expected a seeded career in the catalogue.');
     }
 
-    const result = (await service.runSkillGaps(user.id, careerId)) as {
-      gaps: Array<{ status: string; priority: string }>;
-    };
-    expect(result.gaps.length).toBeGreaterThan(0);
-    for (const gap of result.gaps) {
+    const result = await service.runSkillGaps(user.id, careerId);
+    expect(result.career.id).toBe(careerId);
+    expect(result.skills.length).toBeGreaterThan(0);
+    for (const gap of result.skills) {
       expect(['HAS_SKILL', 'NEEDS_DEVELOPMENT']).toContain(gap.status);
       expect(['HIGH', 'MEDIUM', 'LOW']).toContain(gap.priority);
     }
@@ -285,25 +285,173 @@ describe.runIf(runDbTests)('AI service (integration, mocked provider)', () => {
       title: 'Become a Fintech Operations Associate',
       description: 'Close the gaps step by step.',
       phases: {
-        30: [{ title: 'Excel basics', description: 'Take a course', skillName: 'Excel', estimatedMinutes: 120 }],
-        60: [{ title: 'Fraud awareness', description: 'Read guidance', skillName: 'Fraud Awareness' }],
-        90: [{ title: 'Digital payments', description: 'Practice', skillName: 'Digital Payments' }],
+        30: [
+          { title: 'Excel basics', description: 'Take a course', skillName: 'Excel', estimatedMinutes: 120 },
+          { title: 'Spreadsheet practice', description: 'Build a ledger', skillName: 'Excel', estimatedMinutes: 90 },
+          { title: 'Data analysis intro', description: 'Review trends', skillName: 'Data Analysis', estimatedMinutes: 60 },
+        ],
+        60: [
+          { title: 'Fraud awareness', description: 'Read guidance', skillName: 'Fraud Awareness', estimatedMinutes: 45 },
+          { title: 'Payment fraud cases', description: 'Study cases', skillName: 'Fraud Awareness', estimatedMinutes: 60 },
+          { title: 'Digital payments', description: 'Practice', skillName: 'Digital Payments', estimatedMinutes: 90 },
+        ],
+        90: [
+          { title: 'Digital payment tools', description: 'Hands-on', skillName: 'Digital Payments', estimatedMinutes: 120 },
+          { title: 'Process improvement', description: 'Map workflows', skillName: 'Problem Solving', estimatedMinutes: 75 },
+          { title: 'Risk scenarios', description: 'Case review', skillName: 'Risk Management', estimatedMinutes: 90 },
+        ],
       },
     });
 
-    const roadmap = (await service.runRoadmap(user.id, careerId)) as {
-      roadmap: { id: string };
-      phases: { DAY_30: unknown[]; DAY_60: unknown[]; DAY_90: unknown[] };
-    };
+    const roadmap = await service.runRoadmap(user.id, careerId);
     expect(roadmap.roadmap.id).toBeDefined();
-    expect(roadmap.phases.DAY_30.length).toBeGreaterThan(0);
+    expect(roadmap.phases.DAY_30.length).toBe(3);
+    expect(roadmap.phases.DAY_60.length).toBe(3);
+    expect(roadmap.phases.DAY_90.length).toBe(3);
 
     const taskCount = await queryRow<{ n: number }>(
       getPool(),
       'SELECT count(*)::int AS n FROM "roadmap_tasks" WHERE "roadmapId" = $1',
       [roadmap.roadmap.id],
     );
-    expect((taskCount?.n ?? 0)).toBe(3);
+    expect(taskCount?.n).toBe(9);
+  });
+
+  it('regenerates the assessment when the experience changes or regenerate=true', async () => {
+    const { user, token } = await registerUser(app);
+    const { id: experienceId } = await createExperience(app, token);
+    let calls = 0;
+    provider.responder = () => {
+      calls += 1;
+      return {
+        automationTasks: ['A'],
+        augmentedTasks: ['B'],
+        humanStrengths: ['C'],
+        emergingSkills: [],
+        explanation: `version ${calls}`,
+      };
+    };
+
+    const first = await service.runCareerImpact(user.id, experienceId);
+    const reused = await service.runCareerImpact(user.id, experienceId);
+    expect(reused.id).toBe(first.id);
+    expect(calls).toBe(1);
+
+    // Editing the experience invalidates the cached assessment.
+    await updateExperience(getPool(), experienceId, user.id, { description: 'A materially different role.' });
+    const regenerated = await service.runCareerImpact(user.id, experienceId);
+    expect(regenerated.id).not.toBe(first.id);
+    expect(calls).toBe(2);
+
+    // An explicit regenerate forces a new analysis even when nothing changed.
+    const forced = await service.runCareerImpact(user.id, experienceId, true);
+    expect(forced.id).not.toBe(regenerated.id);
+    expect(forced.id).not.toBe(first.id);
+    expect(calls).toBe(3);
+
+    const persistedCount = await queryRow<{ n: number }>(
+      getPool(),
+      'SELECT count(*)::int AS n FROM "career_analyses" WHERE "userId" = $1 AND "experienceId" = $2',
+      [user.id, experienceId],
+    );
+    expect(persistedCount?.n).toBe(3);
+  });
+
+  it('rejects roadmap output with fewer than 3 tasks per phase', async () => {
+    const { user, token } = await registerUser(app);
+    await createExperience(app, token);
+    const careers = await queryText<{ id: string }>(getPool(), 'SELECT "id" FROM "career_paths" LIMIT 1');
+    const careerId = careers[0]?.id as string;
+
+    provider.responder = () => ({
+      title: 'Roadmap',
+      description: 'Too sparse.',
+      phases: {
+        30: [{ title: 'Excel basics', description: 'x', skillName: 'Excel' }],
+        60: [{ title: 'Fraud awareness', description: 'x', skillName: 'Fraud Awareness' }],
+        90: [{ title: 'Digital payments', description: 'x', skillName: 'Digital Payments' }],
+      },
+    });
+
+    await expect(service.runRoadmap(user.id, careerId)).rejects.toMatchObject({
+      code: 'AI_OUTPUT_INVALID',
+      statusCode: 422,
+    });
+
+    const roadmapCount = await queryRow<{ n: number }>(
+      getPool(),
+      'SELECT count(*)::int AS n FROM "roadmaps" WHERE "userId" = $1',
+      [user.id],
+    );
+    expect(roadmapCount?.n).toBe(0);
+  });
+
+  it('rejects roadmap output referencing an unknown skill name', async () => {
+    const { user, token } = await registerUser(app);
+    await createExperience(app, token);
+    const careers = await queryText<{ id: string }>(getPool(), 'SELECT "id" FROM "career_paths" LIMIT 1');
+    const careerId = careers[0]?.id as string;
+
+    const threeTasks = (skillName: string) => [
+      { title: 'Task 1', description: 'x', skillName },
+      { title: 'Task 2', description: 'x', skillName: 'Excel' },
+      { title: 'Task 3', description: 'x', skillName: 'Problem Solving' },
+    ];
+    provider.responder = () => ({
+      title: 'Roadmap',
+      description: 'References an out-of-catalogue skill.',
+      phases: {
+        30: threeTasks('Excel'),
+        60: threeTasks('Fraud Awareness'),
+        90: threeTasks('Made Up Skill'),
+      },
+    });
+
+    await expect(service.runRoadmap(user.id, careerId)).rejects.toMatchObject({
+      code: 'AI_OUTPUT_INVALID',
+      statusCode: 422,
+    });
+  });
+
+  it('reuses the current roadmap for the same career without an extra AI call', async () => {
+    const { user, token } = await registerUser(app);
+    await createExperience(app, token);
+    const careers = await queryText<{ id: string }>(getPool(), 'SELECT "id" FROM "career_paths" LIMIT 1');
+    const careerId = careers[0]?.id as string;
+
+    let calls = 0;
+    provider.responder = () => {
+      calls += 1;
+      const task = (skillName: string, i: number) => ({
+        title: `Task ${i}`,
+        description: 'x',
+        skillName,
+      });
+      return {
+        title: 'Roadmap',
+        description: 'Reused.',
+        phases: {
+          30: [task('Excel', 1), task('Excel', 2), task('Data Analysis', 3)],
+          60: [task('Fraud Awareness', 1), task('Fraud Awareness', 2), task('Digital Payments', 3)],
+          90: [task('Problem Solving', 1), task('Risk Management', 2), task('Digital Payments', 3)],
+        },
+      };
+    };
+
+    const first = await service.runRoadmap(user.id, careerId);
+    const second = await service.runRoadmap(user.id, careerId);
+    expect(second.roadmap.id).toBe(first.roadmap.id);
+    expect(calls).toBe(1);
+
+    const forced = await service.runRoadmap(user.id, careerId, true);
+    expect(forced.roadmap.id).toBe(first.roadmap.id);
+
+    const roadmapCount = await queryRow<{ n: number }>(
+      getPool(),
+      'SELECT count(*)::int AS n FROM "roadmaps" WHERE "userId" = $1',
+      [user.id],
+    );
+    expect(roadmapCount?.n).toBe(1);
   });
 
   it('blocks roadmap generation when there are no skill gaps', async () => {

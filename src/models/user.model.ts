@@ -74,6 +74,28 @@ export async function findUserById(db: Db | undefined, id: string): Promise<User
   return queryRow<UserRow>(db ?? getPool(), 'SELECT * FROM "users" WHERE "id" = $1', [id]);
 }
 
+export async function updateUserPasswordHash(
+  db: Db,
+  userId: string,
+  passwordHash: string,
+): Promise<void> {
+  await queryText(db, 'UPDATE "users" SET "passwordHash" = $1, "updatedAt" = now() WHERE "id" = $2', [
+    passwordHash,
+    userId,
+  ]);
+}
+
+export async function findParticipantProfileByUserId(
+  db: Db | undefined,
+  userId: string,
+): Promise<ParticipantProfileRow | null> {
+  return queryRow<ParticipantProfileRow>(
+    db ?? getPool(),
+    'SELECT * FROM "participant_profiles" WHERE "userId" = $1',
+    [userId],
+  );
+}
+
 /** Creates the ParticipantProfile required for every participant account. */
 export async function insertParticipantProfile(db: Db, userId: string): Promise<ParticipantProfileRow> {
   const row = await queryRow<ParticipantProfileRow>(

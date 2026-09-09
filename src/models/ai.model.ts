@@ -106,3 +106,18 @@ export async function listTransferableSkills(
     [userId],
   );
 }
+
+/** Transferable skills attributed to a specific experience, newest first. */
+export async function listTransferableSkillsForExperience(
+  db: Db | undefined,
+  userId: string,
+  sourceExperienceId: string,
+): Promise<TransferableSkillRow[]> {
+  return queryText<TransferableSkillRow>(
+    db ?? getPool(),
+    `SELECT * FROM "transferable_skills"
+     WHERE "userId" = $1 AND "sourceExperienceId" = $2
+     ORDER BY "createdAt" DESC`,
+    [userId, sourceExperienceId],
+  );
+}

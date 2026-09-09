@@ -36,7 +36,25 @@ export async function listUserSkillsWithNames(
   );
 }
 
-/** Upserts an AI-derived user skill, keeping an existing AI-derived entry's confidence, else inserting. */
+/**
+ * Trust ordering for a skill's provenance. A higher-trust source is never
+ * overwritten by a lower-trust source, so AI-inferred skills can never degrade
+ * skills earned through challenges or verified by an organization
+ * (docs/AGENTS.md §18 "AI-derived skills remain AI_DERIVED", docs/PRODUCT_SPEC.md §30).
+ */
+export const SOURCE_RANK: Record<SkillSource, number> = {
+  SELF_REPORTED: 1,
+  AI_DERIVED: 2,
+  CHALLENGE: 3,
+  VERIFIED: 4,
+};
+
+/**
+ * Upserts a user skill. Source/proficiency only change when the incoming
+ * source has equal or higher trust than the stored one; confidence always
+ * takes the greater of the two values. Removes duplicates by relying on the
+ * UNIQUE ("userId", "skillId") index (db/migrations/002).
+ */
 export async function upsertUserSkill(
   db: Db,
   input: {
@@ -47,16 +65,39 @@ export async function upsertUserSkill(
     proficiency?: number;
   },
 ): Promise<void> {
+  const incomingRank = SOURCE_RANK[input.source];
   await queryText(
     db,
     `INSERT INTO "user_skills" ("userId", "skillId", "source", "confidence", "proficiency")
      VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT ("userId", "skillId") DO UPDATE
-       SET "source" = EXCLUDED."source",
+       SET "source" = CASE
+             WHEN $6 >= (
+               CASE "user_skills"."source"
+                 WHEN 'VERIFIED' THEN 4
+                 WHEN 'CHALLENGE' THEN 3
+                 WHEN 'AI_DERIVED' THEN 2
+                 ELSE 1
+               END
+             )
+             THEN EXCLUDED."source"
+             ELSE "user_skills"."source"
+           END,
            "confidence" = GREATEST("user_skills"."confidence", EXCLUDED."confidence"),
-           "proficiency" = EXCLUDED."proficiency",
+           "proficiency" = CASE
+             WHEN $6 >= (
+               CASE "user_skills"."source"
+                 WHEN 'VERIFIED' THEN 4
+                 WHEN 'CHALLENGE' THEN 3
+                 WHEN 'AI_DERIVED' THEN 2
+                 ELSE 1
+               END
+             )
+             THEN EXCLUDED."proficiency"
+             ELSE "user_skills"."proficiency"
+           END,
            "updatedAt" = now()
      RETURNING 1`,
-    [input.userId, input.skillId, input.source, input.confidence, input.proficiency ?? 0],
+    [input.userId, input.skillId, input.source, input.confidence, input.proficiency ?? 0, incomingRank],
   );
 }

@@ -43,3 +43,49 @@ export async function findChallengeById(db: Db | undefined, id: string): Promise
   );
   return rows[0] ?? null;
 }
+
+export interface ChallengeSkillRow {
+  challengeId: string;
+  skillId: string;
+  skillName: string;
+}
+
+/** Loads the skill ids/names linked to the given challenges in one query. */
+export async function listChallengeSkills(
+  db: Db | undefined,
+  challengeIds: string[],
+): Promise<ChallengeSkillRow[]> {
+  if (challengeIds.length === 0) {
+    return [];
+  }
+  return queryText<ChallengeSkillRow>(
+    db ?? getPool(),
+    `SELECT cs."challengeId", s."id" AS "skillId", s."name" AS "skillName"
+     FROM "challenge_skills" cs
+     JOIN "skills" s ON s."id" = cs."skillId"
+     WHERE cs."challengeId" = ANY($1::uuid[])
+     ORDER BY s."name" ASC`,
+    [challengeIds],
+  );
+}
+
+export interface ChallengeWithSkills extends ChallengeRow {
+  skills: Array<{ skillId: string; skillName: string }>;
+}
+
+/** Interface shared by challenge list responses so skills are attached once. */
+export function attachSkills(
+  challenges: ChallengeRow[],
+  skillRows: ChallengeSkillRow[],
+): ChallengeWithSkills[] {
+  const byChallenge = new Map<string, Array<{ skillId: string; skillName: string }>>();
+  for (const row of skillRows) {
+    const list = byChallenge.get(row.challengeId) ?? [];
+    list.push({ skillId: row.skillId, skillName: row.skillName });
+    byChallenge.set(row.challengeId, list);
+  }
+  return challenges.map((challenge) => ({
+    ...challenge,
+    skills: byChallenge.get(challenge.id) ?? [],
+  }));
+}

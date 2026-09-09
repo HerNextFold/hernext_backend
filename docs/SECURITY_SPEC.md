@@ -440,7 +440,7 @@ Conceptually:
 WHERE organizationId = authorizedOrganizationId
 ```
 
-or an equivalent relation-based Prisma query.
+or an equivalent parameterized `pg` query.
 
 ---
 
@@ -544,7 +544,7 @@ unless explicitly permitted by the API contract.
 
 # 22. SQL / Database Injection
 
-Use Prisma's parameterized queries.
+Use `pg` parameterized queries (`$1`, `$2`, ... placeholders) for all database access.
 
 Do not construct raw SQL using untrusted user input.
 
@@ -912,7 +912,7 @@ Do not return:
 ```text
 Stack traces
 Database connection strings
-Prisma internals
+pg internals
 AI provider secrets
 Environment variables
 File paths
@@ -1020,7 +1020,7 @@ Direct PostgreSQL connection
 
 # 44. Transaction Safety
 
-Operations involving multiple dependent database writes should use Prisma transactions where appropriate.
+Operations involving multiple dependent database writes should use `pg` transactions (`src/lib/db.ts`, `withTransaction`) where appropriate.
 
 Examples:
 
@@ -1302,7 +1302,7 @@ Zod Validation
      ↓
 Business Logic
      ↓
-Prisma
+pg Model (parameterized SQL)
      ↓
 Safe Response
 ```

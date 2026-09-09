@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AI_RELEVANT_CATEGORIES,
+  calculateAiReadinessScore,
+  calculateAiSkillCoverage,
   calculateCareerReadinessScore,
   calculateEvidenceScore,
   calculateExperienceScore,
   calculateReadinessSkillsScore,
+  isAiRelevantCategory,
   readinessLabel,
   READINESS_WEIGHTS,
 } from '../src/lib/scoring/readiness.js';
@@ -117,6 +121,63 @@ describe('calculateCareerReadinessScore', () => {
       expect(score).toBeGreaterThanOrEqual(0);
       expect(score).toBeLessThanOrEqual(100);
       expect(score).toBe(calculateCareerReadinessScore(input));
+    }
+  });
+});
+
+describe('AI Readiness (docs/SCORING_LOGIC.md §27)', () => {
+  it('identifies digital/AI relevant categories from the seed catalogue', () => {
+    expect(AI_RELEVANT_CATEGORIES).toEqual(['DIGITAL', 'DATA_ANALYTICS']);
+    expect(isAiRelevantCategory('DIGITAL')).toBe(true);
+    expect(isAiRelevantCategory('DATA_ANALYTICS')).toBe(true);
+    expect(isAiRelevantCategory('FINANCIAL')).toBe(false);
+    expect(isAiRelevantCategory(null)).toBe(false);
+    expect(isAiRelevantCategory(undefined)).toBe(false);
+  });
+
+  it('scores AI skill coverage as owned/reference percentage', () => {
+    expect(calculateAiSkillCoverage({ ownedSkillIds: new Set(), aiRelevantSkillIds: [] })).toBe(0);
+    expect(
+      calculateAiSkillCoverage({
+        ownedSkillIds: new Set(['a']),
+        aiRelevantSkillIds: ['a', 'b', 'c', 'd'],
+      }),
+    ).toBe(25);
+    expect(
+      calculateAiSkillCoverage({
+        ownedSkillIds: new Set(['b', 'd']),
+        aiRelevantSkillIds: ['b', 'd'],
+      }),
+    ).toBe(100);
+    expect(
+      calculateAiSkillCoverage({
+        ownedSkillIds: new Set(['x']),
+        aiRelevantSkillIds: ['a', 'b'],
+      }),
+    ).toBe(0);
+  });
+
+  it('uses only the skill component when no AI-related roadmap activity exists', () => {
+    expect(calculateAiReadinessScore({ relevantSkillCoverage: 60, aiRoadmapCompletion: undefined })).toBe(60);
+    expect(calculateAiReadinessScore({ relevantSkillCoverage: 0, aiRoadmapCompletion: undefined })).toBe(0);
+  });
+
+  it('averages skill coverage and AI roadmap completion when tasks exist', () => {
+    expect(calculateAiReadinessScore({ relevantSkillCoverage: 50, aiRoadmapCompletion: 100 })).toBe(75);
+    expect(calculateAiReadinessScore({ relevantSkillCoverage: 50, aiRoadmapCompletion: 0 })).toBe(25);
+    expect(calculateAiReadinessScore({ relevantSkillCoverage: 100, aiRoadmapCompletion: 66 })).toBe(83);
+  });
+
+  it('is deterministic and clamped', () => {
+    for (const input of [
+      { relevantSkillCoverage: 200, aiRoadmapCompletion: -5 },
+      { relevantSkillCoverage: -1, aiRoadmapCompletion: undefined },
+      { relevantSkillCoverage: 55.5, aiRoadmapCompletion: 55.5 },
+    ]) {
+      const score = calculateAiReadinessScore(input);
+      expect(score).toBeGreaterThanOrEqual(0);
+      expect(score).toBeLessThanOrEqual(100);
+      expect(score).toBe(calculateAiReadinessScore(input));
     }
   });
 });

@@ -13,7 +13,9 @@
  */
 
 import { roundScore } from './ai-impact.js';
-import { calculateSkillMatchScore, type SkillImportance } from './career-match.js';
+import { calculateAiReadinessScore, calculateSkillMatchScore, type SkillImportance } from './career-match.js';
+
+export { calculateAiReadinessScore };
 
 export const READINESS_WEIGHTS = {
   experience: 0.25,
@@ -21,6 +23,35 @@ export const READINESS_WEIGHTS = {
   aiReadiness: 0.2,
   evidence: 0.25,
 } as const;
+
+/**
+ * Categories treated as "digital/AI-relevant" for the AI Readiness component
+ * (docs/SCORING_LOGIC.md §27). Matches the seeded skill catalogue: Excel and
+ * Data Analysis (DATA_ANALYTICS) and Digital Payments (DIGITAL).
+ */
+export const AI_RELEVANT_CATEGORIES = ['DIGITAL', 'DATA_ANALYTICS'] as const;
+
+export function isAiRelevantCategory(category: string | null | undefined): boolean {
+  return category !== null && category !== undefined
+    && (AI_RELEVANT_CATEGORIES as readonly string[]).includes(category);
+}
+
+/**
+ * AI skill coverage (0-100): the fraction of the reference set of digital/AI
+ * skills the participant possesses. The reference set is the target career's
+ * AI-relevant skills when a target exists, otherwise the whole approved
+ * catalogue's AI-relevant skills.
+ */
+export function calculateAiSkillCoverage(input: {
+  ownedSkillIds: ReadonlySet<string>;
+  aiRelevantSkillIds: readonly string[];
+}): number {
+  if (input.aiRelevantSkillIds.length === 0) {
+    return 0;
+  }
+  const owned = input.aiRelevantSkillIds.filter((id) => input.ownedSkillIds.has(id)).length;
+  return roundScore(clamp((owned / input.aiRelevantSkillIds.length) * 100));
+}
 
 function clamp(value: number): number {
   return Math.max(0, Math.min(100, value));

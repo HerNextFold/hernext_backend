@@ -108,9 +108,9 @@ describe('GeminiProvider real end-to-end (opt-in, live)', () => {
 
     // Structured output is present and well-formed.
     expect(result.experienceId).toBe(experienceId);
-    expect(result.aiImpactScore).toBeGreaterThanOrEqual(0);
-    expect(result.aiImpactScore).toBeLessThanOrEqual(100);
-    expect(['LOW', 'MODERATE', 'HIGH']).toContain(result.impactLevel);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+    expect(['LOW', 'MODERATE', 'HIGH']).toContain(result.level);
     expect(result.explanation.length).toBeGreaterThan(0);
 
     // The row was persisted to Neon.
@@ -126,7 +126,7 @@ describe('GeminiProvider real end-to-end (opt-in, live)', () => {
        FROM "career_analyses" WHERE "userId" = $1 AND "experienceId" = $2`,
       [user.id, experienceId],
     );
-    expect(stored?.aiImpactScore).toBe(result.aiImpactScore);
+    expect(stored?.aiImpactScore).toBe(result.score);
 
     // Backend-owned scoring: the stored score is recomputed by the deterministic
     // backend formula from the AI's task arrays, NOT returned by Gemini.
@@ -136,8 +136,8 @@ describe('GeminiProvider real end-to-end (opt-in, live)', () => {
         augmentedCount: stored.augmentedTasks.length,
         humanCount: stored.humanStrengths.length,
       });
-      expect(result.aiImpactScore).toBe(expected);
-      expect(result.impactLevel).toBe(impactLevelForScore(expected));
+      expect(result.score).toBe(expected);
+      expect(result.level).toBe(impactLevelForScore(expected));
     }
   });
 
@@ -152,7 +152,7 @@ describe('GeminiProvider real end-to-end (opt-in, live)', () => {
     // GET path reads the persisted row without touching the provider.
     const fetched = await service.getCareerImpact(user.id, experienceId);
     expect(fetched.id).toBe(generated.id);
-    expect(fetched.aiImpactScore).toBe(generated.aiImpactScore);
+    expect(fetched.score).toBe(generated.score);
     expect(fetched.automationTasks).toEqual(generated.automationTasks);
   });
 

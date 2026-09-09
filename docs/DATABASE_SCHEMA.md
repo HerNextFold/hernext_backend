@@ -4,7 +4,7 @@
 **Track:** Finance, Banking & Investment
 **Backend:** Node.js + TypeScript + Fastify
 **Database:** PostgreSQL (Neon)
-**ORM:** Prisma
+**Data access:** Raw, parameterized `pg` SQL; SQL migrations in `db/migrations/` (managed by `db/migrate.ts`)
 
 ---
 
@@ -860,7 +860,7 @@ Never store raw refresh tokens if avoidable.
 
 # 30. Enums
 
-The Prisma schema should contain enums for controlled values.
+The SQL migrations should define PostgreSQL enums for controlled values.
 
 ```text
 UserRole
@@ -1084,11 +1084,9 @@ The seed data should allow the team to demonstrate the complete participant jour
 Development workflow:
 
 ```text
-Modify prisma/schema.prisma
+Write SQL migration in db/migrations/
         ↓
 Run migration
-        ↓
-Generate Prisma Client
         ↓
 Run seed
         ↓
@@ -1098,9 +1096,10 @@ Test API
 Typical development commands:
 
 ```bash
-npx prisma migrate dev --name init
-npx prisma generate
-npx prisma db seed
+npm run db:migrate
+npm run db:seed
+npm run db:seed:demo
+npm run db:check
 ```
 
 Do not manually edit production database tables.
@@ -1158,9 +1157,9 @@ ORGANIZATION
 
 The database layer is ready when:
 
-* [ ] Prisma schema matches this specification.
+* [ ] SQL migrations match this specification.
 * [ ] PostgreSQL migration succeeds on Neon.
-* [ ] Prisma Client generates successfully.
+* [ ] `npm run db:migrate` applies cleanly.
 * [ ] Seed data loads successfully.
 * [ ] Foreign-key relationships work.
 * [ ] Unique constraints work.
