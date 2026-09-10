@@ -6,6 +6,7 @@ import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/config/env.js';
 import { checkDatabaseConnection, closeDb, getPool, initDb, queryRow, queryText } from '../src/lib/db.js';
 import { deleteUserByEmail } from '../src/models/user.model.js';
+import { readLatestOtp } from './helpers/auth.js';
 
 const runDbTests = process.env.RUN_DB_TESTS === '1';
 
@@ -100,7 +101,14 @@ describe.runIf(runDbTests)('challenges API (integration)', { timeout: 120_000 },
       },
     });
     expect(response.statusCode).toBe(201);
-    const token = response.json().data.accessToken as string;
+    const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
+    const verify = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/verify-email-otp',
+      payload: { email, code },
+    });
+    expect(verify.statusCode).toBe(200);
+    const token = verify.json().data.accessToken as string;
     const user = await queryRow<{ id: string }>(getPool(), 'SELECT "id" FROM "users" WHERE "email" = $1', [email]);
     if (user === null) {
       throw new Error('Expected created user.');

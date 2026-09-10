@@ -48,16 +48,25 @@ Notes:
 
 ## 2. Authentication (public)
 
-| # | Method | Path                 | Body (example)                                        | Expected |
-|---|--------|----------------------|-------------------------------------------------------|----------|
-| 4 | POST   | /auth/register       | `{"firstName":"Aminata","lastName":"Diallo","email":"a.diallo@example.com","password":"super-secret-1","country":"Nigeria"}` | 201 + `accessToken` |
-| 5 | POST   | /auth/login          | `{"email":"a.diallo@example.com","password":"super-secret-1"}` | 200 + `accessToken` |
-| 6 | POST   | /auth/forgot-password| `{"email":"a.diallo@example.com"}`                     | 200 (development mode returns a reset token) |
-| 7 | POST   | /auth/reset-password | `{"token":"<reset-token>","newPassword":"super-secret-2"}` | 200 |
-| 8 | POST   | /auth/logout         | not required                                          | 200, then the token is no longer valid |
+Email verification is mandatory. `register` creates an **UNVERIFIED** account and
+returns no access token; the code is emailed and read from the configured email
+provider. Locally the provider is `test` (in-memory, `src/modules/auth/email`),
+so the code is not visible via HTTP — use the automated suites or swap in the
+`brevo` provider to complete the flow manually.
 
-> Capture `accessToken` from register/login and paste into the **Authorize** button
-> of the Swagger UI, or send `Authorization: Bearer <token>`.
+| # | Method | Path                       | Body (example)                                        | Expected |
+|---|--------|----------------------------|-------------------------------------------------------|----------|
+| 4 | POST   | /auth/register             | `{"firstName":"Aminata","lastName":"Diallo","email":"a.diallo@example.com","password":"super-secret-1","country":"Nigeria"}` | 201 + `verificationStatus:"PENDING"`, no `accessToken` |
+| 5 | POST   | /auth/verify-email-otp     | `{"email":"a.diallo@example.com","code":"123456"}`    | 200 + user (`emailVerified:true`) + first `accessToken` |
+| 6 | POST   | /auth/resend-email-verification | `{"email":"a.diallo@example.com"}`                | 200 `{ success: true, data: {} }` (generic) |
+| 7 | POST   | /auth/login                | `{"email":"a.diallo@example.com","password":"super-secret-1"}` | 200 + `accessToken` (403 `ACCOUNT_UNVERIFIED` before verify) |
+| 8 | POST   | /auth/forgot-password      | `{"email":"a.diallo@example.com"}`                    | 200 `{ success: true, data: {} }` (generic, no token) |
+| 9 | POST   | /auth/verify-reset-otp     | `{"email":"a.diallo@example.com","code":"123456"}`    | 200 + `data.resetToken` (opaque, single-use) |
+|10 | POST   | /auth/reset-password       | `{"token":"<reset-token>","password":"super-secret-2"}` | 200 |
+|11 | POST   | /auth/logout               | not required                                          | 200, then the token is no longer valid |
+
+> Capture `accessToken` from verify-email-otp/login and paste into the **Authorize**
+> button of the Swagger UI, or send `Authorization: Bearer <token>`.
 
 ---
 
@@ -167,6 +176,9 @@ Critical security checks to perform manually once:
 
 - Register two users; user B must get `404` reading/writing user A's experiences,
   evidence, roadmap tasks, and passport.
+- A freshly registered account cannot log in (`403 ACCOUNT_UNVERIFIED`) until
+  `/auth/verify-email-otp` succeeds; wrong/exhausted/expired codes all return the
+  same `400 INVALID_OTP`.
 - `PUT /profile` must never create data attributed to a `userId` from the body.
 - `GET /passport/public/:slug` returns only public fields (no email, no hash,
   no internal IDs).

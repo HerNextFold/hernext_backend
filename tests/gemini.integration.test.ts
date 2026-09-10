@@ -8,6 +8,7 @@ import { deleteUserByEmail, type UserRow } from '../src/models/user.model.js';
 import { calculateAiImpactScore, impactLevelForScore } from '../src/lib/scoring/ai-impact.js';
 import { AiService } from '../src/modules/ai/ai.service.js';
 import { GeminiProvider } from '../src/modules/ai/providers/gemini.provider.js';
+import { readLatestOtp } from './helpers/auth.js';
 
 /**
  * REAL Google Gemini end-to-end verification against the live database.
@@ -75,7 +76,14 @@ describe('GeminiProvider real end-to-end (opt-in, live)', () => {
       payload: { firstName: 'Gemini', lastName: 'Tester', email, password: PASSWORD, country: 'Nigeria' },
     });
     expect(response.statusCode).toBe(201);
-    const body = response.json();
+    const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
+    const verify = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/verify-email-otp',
+      payload: { email, code },
+    });
+    expect(verify.statusCode).toBe(200);
+    const body = verify.json();
     return { user: body.data.user as UserRow, token: body.data.accessToken as string };
   }
 

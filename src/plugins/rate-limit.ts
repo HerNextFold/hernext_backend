@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import rateLimit from '@fastify/rate-limit';
+import rateLimit, { type errorResponseBuilderContext } from '@fastify/rate-limit';
 import { errorCodes } from '../common/errors/error-codes.js';
 import type { AppConfig } from '../config/env.js';
 
@@ -18,13 +18,17 @@ export function registerRateLimit(app: FastifyInstance, config: AppConfig): void
   void app.register(rateLimit, {
     max: 100,
     timeWindow: 60_000,
-    errorResponseBuilder: () => ({
-      success: false,
-      error: {
-        code: errorCodes.RATE_LIMIT_EXCEEDED,
-        message: 'Rate limit exceeded. Please try again later.',
-        details: [],
-      },
-    }),
+    // The plugin THROWS whatever the builder returns into the error handler, so
+    // this must be a real Error carrying the 429 statusCode. Without it the
+    // central handler would classify the failure as a 500 (docs/AGENTS.md §14).
+    errorResponseBuilder: (_request, context: errorResponseBuilderContext) => {
+      const error = new Error('Rate limit exceeded. Please try again later.') as Error & {
+        statusCode: number;
+        code: string;
+      };
+      error.statusCode = context.statusCode;
+      error.code = errorCodes.RATE_LIMIT_EXCEEDED;
+      return error;
+    },
   });
 }

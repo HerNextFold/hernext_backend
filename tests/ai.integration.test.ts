@@ -8,6 +8,7 @@ import { deleteUserByEmail, type UserRow } from '../src/models/user.model.js';
 import { updateExperience } from '../src/models/experience.model.js';
 import { AiService } from '../src/modules/ai/ai.service.js';
 import { LLMProviderError, type LLMProvider } from '../src/modules/ai/providers/llm.provider.js';
+import { readLatestOtp } from './helpers/auth.js';
 
 // These tests exercise AI service behaviour against a real database (Neon)
 // with a mocked LLM provider, so the normal test suite never needs a live AI
@@ -45,7 +46,14 @@ async function registerUser(app: FastifyInstance): Promise<{ user: UserRow; toke
     },
   });
   expect(response.statusCode).toBe(201);
-  const body = response.json();
+  const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
+  const verify = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/verify-email-otp',
+    payload: { email, code },
+  });
+  expect(verify.statusCode).toBe(200);
+  const body = verify.json();
   return { user: body.data.user as UserRow, token: body.data.accessToken as string };
 }
 

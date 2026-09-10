@@ -12,6 +12,8 @@ export interface UserRow {
   role: UserRole;
   country: string;
   isActive: boolean;
+  emailVerified: boolean;
+  verifiedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,6 +85,15 @@ export async function updateUserPasswordHash(
     passwordHash,
     userId,
   ]);
+}
+
+/** Marks a user's email as verified. Called only after a valid OTP proof. */
+export async function markUserVerified(db: Db, userId: string): Promise<void> {
+  await queryText(
+    db,
+    'UPDATE "users" SET "emailVerified" = true, "verifiedAt" = now(), "updatedAt" = now() WHERE "id" = $1',
+    [userId],
+  );
 }
 
 export async function findParticipantProfileByUserId(

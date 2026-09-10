@@ -10,6 +10,7 @@ import { insertExperience } from '../src/models/experience.model.js';
 import { insertCareerAnalysis } from '../src/models/ai.model.js';
 import { insertRoadmap, insertRoadmapTask } from '../src/models/roadmap.model.js';
 import { calculateAiImpactScore, impactLevelForScore } from '../src/lib/scoring/ai-impact.js';
+import { readLatestOtp } from './helpers/auth.js';
 
 // Exercises organizations, programs, participant monitoring, analytics and
 // reports against the real database, including tenant isolation (IDOR).
@@ -78,7 +79,14 @@ describe.runIf(runDbTests)('organizations API (integration)', { timeout: 240_000
       },
     });
     expect(response.statusCode, `register response body: ${JSON.stringify(response.json())}`).toBe(201);
-    const token = response.json().data.accessToken as string;
+    const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
+    const verify = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/verify-email-otp',
+      payload: { email, code },
+    });
+    expect(verify.statusCode).toBe(200);
+    const token = verify.json().data.accessToken as string;
     const user = await queryRow<{ id: string }>(getPool(), 'SELECT "id" FROM "users" WHERE "email" = $1', [email]);
     if (user === null) {
       throw new Error('Expected created user.');

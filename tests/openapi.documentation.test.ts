@@ -20,10 +20,13 @@ interface DocMatrixEntry {
  */
 const ROUTE_MATRIX: DocMatrixEntry[] = [
   { method: 'POST', path: '/api/v1/auth/register', hasBody: true, public: true },
+  { method: 'POST', path: '/api/v1/auth/verify-email-otp', hasBody: true, public: true },
+  { method: 'POST', path: '/api/v1/auth/resend-email-verification', hasBody: true, public: true },
   { method: 'POST', path: '/api/v1/auth/login', hasBody: true, public: true },
   { method: 'POST', path: '/api/v1/auth/logout' },
   { method: 'GET', path: '/api/v1/auth/me' },
   { method: 'POST', path: '/api/v1/auth/forgot-password', hasBody: true, public: true },
+  { method: 'POST', path: '/api/v1/auth/verify-reset-otp', hasBody: true, public: true },
   { method: 'POST', path: '/api/v1/auth/reset-password', hasBody: true, public: true },
 
   { method: 'GET', path: '/api/v1/profile' },

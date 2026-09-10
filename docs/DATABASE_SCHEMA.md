@@ -90,6 +90,8 @@ Represents every authenticated account.
 | role         | UserRole |      Yes | Participant or organization admin |
 | country      | String   |      Yes | User's country                    |
 | isActive     | Boolean  |      Yes | Account status                    |
+| emailVerified| Boolean  |      Yes | False until `/auth/verify-email-otp` succeeds |
+| verifiedAt   | DateTime |       No | When the email was verified       |
 | createdAt    | DateTime |      Yes | Creation timestamp                |
 | updatedAt    | DateTime |      Yes | Last update                       |
 
@@ -98,6 +100,59 @@ Represents every authenticated account.
 * Email must be unique.
 * Password is never stored in plain text.
 * `isActive` defaults to `true`.
+* `emailVerified` defaults to `false`. Accounts cannot log in until verified
+  (`403 ACCOUNT_UNVERIFIED`).
+* `verifiedAt` must be NULL while `emailVerified` is `false`.
+
+**Migration:** `006_auth_otps_and_email_verification.sql`.
+
+---
+
+### Auth OTPs (`auth_otps`)
+
+Stores the SHA-256 hashes of one-time codes. The plaintext code is **never**
+persisted, logged, or echoed in API responses.
+
+| Field            | Type     | Required | Description                                          |
+| ---------------- | -------- | -------: | ---------------------------------------------------- |
+| id               | UUID     |      Yes | Primary key                                          |
+| userId           | UUID     |      Yes | Owning user (`users.id`)                             |
+| purpose          | OtpPurpose |   Yes | `EMAIL_VERIFICATION` or `PASSWORD_RESET`             |
+| codeHash         | String   |      Yes | SHA-256 hex digest of the code (constant-time compare)|
+| expiresAt        | DateTime |      Yes | 10 minutes after issue (`OTP_LIFETIME_MS`)           |
+| attempts         | Integer  |      Yes | Failed verification attempts                         |
+| maxAttempts      | Integer  |      Yes | `5` (`OTP_MAX_ATTEMPTS`)                             |
+| usedAt           | DateTime |       No | Set when the code is successfully consumed           |
+| createdAt        | DateTime |      Yes | Creation timestamp                                   |
+
+### Auth OTP rules
+
+* Codes are six numeric digits drawn from a cryptographically secure RNG.
+* One active code per user+purpose; issuing a new code invalidates the previous.
+* A 60-second resend cooldown applies (`OTP_RESEND_COOLDOWN_MS`).
+* Verification uses a constant-time comparison; wrong, expired, used, or
+  exhausted codes all surface as `INVALID_OTP`.
+* Recovery requires a database round-trip after the hash comparison so attempt
+  counts are persisted.
+
+---
+
+### Password Reset Tokens (`password_reset_tokens`)
+
+| Field       | Type     | Required | Description                                      |
+| ----------- | -------- | -------: | ------------------------------------------------ |
+| id          | UUID     |      Yes | Primary key                                      |
+| userId      | UUID     |      Yes | Owning user (`users.id`)                         |
+| tokenHash   | String   |      Yes | SHA-256 digest of the opaque token               |
+| expiresAt   | DateTime |      Yes | 15 minutes after issue (`RESET_TOKEN_TTL_MS`)    |
+| usedAt      | DateTime |       No | Set when the token is consumed on reset          |
+| createdAt   | DateTime |      Yes | Creation timestamp                               |
+
+* The raw token is a cryptographically random, single-use value returned once by
+  `/auth/verify-reset-otp`; only its hash is stored.
+* The token is not a JWT and is accepted only by `/auth/reset-password`.
+* A successful reset marks the token used and revokes other pending tokens for
+  the account.
 
 ---
 

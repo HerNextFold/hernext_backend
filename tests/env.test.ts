@@ -9,6 +9,7 @@ describe('loadEnv', () => {
     expect(config.jwtSecret.length).toBeGreaterThan(0);
     expect(config.jwtRefreshSecret.length).toBeGreaterThan(0);
     expect(config.frontendUrl.length).toBeGreaterThan(0);
+    expect(['test', 'brevo']).toContain(config.emailProvider);
   });
 
   it('rejects a missing DATABASE_URL', () => {
@@ -35,5 +36,35 @@ describe('loadEnv', () => {
     expect(config.port).toBe(5000);
     expect(config.jwtExpiresIn).toBe('15m');
     expect(config.jwtRefreshExpiresIn).toBe('7d');
+    expect(config.emailProvider).toBe('test');
+  });
+
+  it('forbids the in-memory email provider in production', () => {
+    const bad = {
+      ...process.env,
+      NODE_ENV: 'production',
+      EMAIL_PROVIDER: 'test',
+    };
+    expect(() => loadEnv(bad)).toThrow(/EMAIL_PROVIDER must be "brevo" in production/);
+  });
+
+  it('requires Brevo credentials when EMAIL_PROVIDER=brevo', () => {
+    const bad = {
+      ...process.env,
+      NODE_ENV: 'production',
+      EMAIL_PROVIDER: 'brevo',
+    };
+    expect(() => loadEnv(bad)).toThrow(/BREVO_API_KEY, BREVO_SENDER_EMAIL is required/);
+
+    const good = {
+      ...process.env,
+      NODE_ENV: 'production',
+      EMAIL_PROVIDER: 'brevo',
+      BREVO_API_KEY: 'secret-key',
+      BREVO_SENDER_EMAIL: 'no-reply@hernext.africa',
+    };
+    const config = loadEnv(good);
+    expect(config.emailProvider).toBe('brevo');
+    expect(config.brevoSenderEmail).toBe('no-reply@hernext.africa');
   });
 });

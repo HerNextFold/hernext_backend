@@ -33,6 +33,10 @@ const appEnvSchema = z.object({
   AI_PROVIDER: z.string().min(1).default('gemini'),
   AI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
+  EMAIL_PROVIDER: z.enum(['test', 'brevo']).default('test'),
+  BREVO_API_KEY: z.string().optional(),
+  BREVO_SENDER_EMAIL: z.string().email('BREVO_SENDER_EMAIL must be a valid email').optional(),
+  BREVO_SENDER_NAME: z.string().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 
@@ -50,6 +54,10 @@ export type AppConfig = {
   aiProvider: string;
   aiApiKey: string | undefined;
   aiModel: string | undefined;
+  emailProvider: 'test' | 'brevo';
+  brevoApiKey: string | undefined;
+  brevoSenderEmail: string | undefined;
+  brevoSenderName: string | undefined;
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 };
 
@@ -68,6 +76,26 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   }
 
   const env = result.data;
+
+  if (env.NODE_ENV === 'production' && env.EMAIL_PROVIDER !== 'brevo') {
+    throw new Error(
+      'Environment validation failed:\n  - EMAIL_PROVIDER must be "brevo" in production (the "test" provider must never be used as a production mail path)',
+    );
+  }
+
+  if (env.EMAIL_PROVIDER === 'brevo') {
+    const missing: string[] = [];
+    if (env.BREVO_API_KEY === undefined || env.BREVO_API_KEY === '') missing.push('BREVO_API_KEY');
+    if (env.BREVO_SENDER_EMAIL === undefined || env.BREVO_SENDER_EMAIL === '') {
+      missing.push('BREVO_SENDER_EMAIL');
+    }
+    if (missing.length > 0) {
+      throw new Error(
+        `Environment validation failed: EMAIL_PROVIDER is "brevo" but ${missing.join(', ')} is required`,
+      );
+    }
+  }
+
   return {
     nodeEnv: env.NODE_ENV,
     port: env.PORT,
@@ -82,6 +110,10 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     aiProvider: env.AI_PROVIDER,
     aiApiKey: env.AI_API_KEY,
     aiModel: env.AI_MODEL,
+    emailProvider: env.EMAIL_PROVIDER,
+    brevoApiKey: env.BREVO_API_KEY,
+    brevoSenderEmail: env.BREVO_SENDER_EMAIL,
+    brevoSenderName: env.BREVO_SENDER_NAME,
     logLevel: env.LOG_LEVEL,
   };
 }

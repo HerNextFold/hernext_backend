@@ -38,6 +38,7 @@ import { GeminiProvider } from './modules/ai/providers/gemini.provider.js';
 import { OpenAiCompatibleProvider } from './modules/ai/providers/openai-compatible.provider.js';
 import { UnconfiguredProvider } from './modules/ai/providers/llm.provider.js';
 import type { LLMProvider } from './modules/ai/providers/llm.provider.js';
+import { buildEmailProvider } from './modules/auth/email/index.js';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -60,10 +61,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerRateLimit(app, config);
 
   // Access tokens are signed here so the service never touches raw secrets.
+  // The email provider is decorated on the instance so tests and demo tooling
+  // can read captured OTP messages from the TestEmailProvider without any API
+  // or log surface exposing codes (docs/SECURITY_SPEC.md §48).
+  const emailProvider = buildEmailProvider(config);
+  app.decorate('hernextEmailProvider', emailProvider);
   const authService = new AuthService({
     signAccessToken: (user) =>
       app.jwt.sign({ id: user.id, role: user.role }, { expiresIn: config.jwtExpiresIn }),
-    nodeEnv: config.nodeEnv,
+    emailProvider,
   });
   registerAuthModule(app, authService);
 

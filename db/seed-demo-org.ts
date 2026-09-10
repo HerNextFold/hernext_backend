@@ -4,7 +4,7 @@ import { closeDb, initDb, queryRow, queryText, withTransaction, type Db } from '
 import { calculateAiImpactScore, impactLevelForScore } from '../src/lib/scoring/ai-impact.js';
 import type { EmploymentType } from '../src/models/experience.model.js';
 import { insertExperience } from '../src/models/experience.model.js';
-import { insertParticipantProfile, insertUser } from '../src/models/user.model.js';
+import { insertParticipantProfile, insertUser, markUserVerified } from '../src/models/user.model.js';
 import { insertCareerAnalysis } from '../src/models/ai.model.js';
 import { insertRoadmap, insertRoadmapTask, type RoadmapPhase } from '../src/models/roadmap.model.js';
 import { upsertUserSkill } from '../src/models/user-skill.model.js';
@@ -96,6 +96,13 @@ function programDates(): { startDate: Date; endDate: Date } {
 async function seedDemoUser(client: Db, email: string, firstName: string, lastName: string) {
   const existing = await queryRow<{ id: string }>(client, 'SELECT "id" FROM "users" WHERE "email" = $1', [email]);
   if (existing !== null) {
+    // Demo accounts must stay login-capable even if they predate email
+    // verification (docs/AGENTS.md §35). Idempotent.
+    await queryText(
+      client,
+      'UPDATE "users" SET "emailVerified" = true, "verifiedAt" = COALESCE("verifiedAt", now()), "updatedAt" = now() WHERE "id" = $1',
+      [existing.id],
+    );
     return existing.id;
   }
   const user = await insertUser(client, {
@@ -106,6 +113,7 @@ async function seedDemoUser(client: Db, email: string, firstName: string, lastNa
     role: 'PARTICIPANT',
     country: 'Nigeria',
   });
+  await markUserVerified(client, user.id);
   await insertParticipantProfile(client, user.id);
   return user.id;
 }

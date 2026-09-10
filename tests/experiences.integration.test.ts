@@ -6,6 +6,7 @@ import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/config/env.js';
 import { checkDatabaseConnection, closeDb, initDb } from '../src/lib/db.js';
 import { deleteUserByEmail } from '../src/models/user.model.js';
+import { readLatestOtp } from './helpers/auth.js';
 
 // Exercises the experiences CRUD API against the real database. Run with
 // npm run test:db. Ownership is enforced through userId from the token.
@@ -73,7 +74,14 @@ describe.runIf(runDbTests)('experiences API (integration)', () => {
       },
     });
     expect(response.statusCode).toBe(201);
-    return response.json().data.accessToken as string;
+    const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
+    const verify = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/verify-email-otp',
+      payload: { email, code },
+    });
+    expect(verify.statusCode).toBe(200);
+    return verify.json().data.accessToken as string;
   }
 
   it('requires authentication for every experiences route', async () => {

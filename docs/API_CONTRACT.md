@@ -109,9 +109,18 @@ Use standard HTTP status codes.
 
 # 5. Authentication
 
+All authentication endpoints are public and rate-limited per IP. Unauthenticated
+routes and helpers are documented in `docs/SECURITY_SPEC.md`.
+
+Registering a new account creates an **UNVERIFIED** account. No access token is
+issued until `POST /auth/verify-email-otp` succeeds with the code emailed at
+registration. Until then `POST /auth/login` is rejected with
+`403 ACCOUNT_UNVERIFIED`.
+
 ## POST `/auth/register`
 
-Creates a new user account.
+Creates a new UNVERIFIED participant account and emails a 6-digit verification
+code.
 
 ### Request
 
@@ -134,6 +143,12 @@ Creates a new user account.
 * Password must be hashed before storage.
 * Participant registration creates a `ParticipantProfile`.
 * Users must not be able to arbitrarily create privileged organization-admin accounts unless the product explicitly allows it.
+* The account is created UNVERIFIED. **No access token is returned.**
+* A 6-digit `EMAIL_VERIFICATION` code is emailed to the address. The code is
+  **never** returned in the response, logged, or echoed on any surface
+  (`docs/SECURITY_SPEC.md` email rules).
+* Codes expire after 10 minutes, allow at most 5 attempts, and are single-use.
+* Resending (subject to a 60-second cooldown) uses `POST /auth/resend-email-verification`.
 
 ### Response
 
@@ -146,6 +161,57 @@ Creates a new user account.
       "firstName": "Aisha",
       "lastName": "Abdullah",
       "email": "aisha@example.com",
+      "emailVerified": false,
+      "role": "PARTICIPANT",
+      "country": "Nigeria"
+    },
+    "verificationStatus": "PENDING"
+  }
+}
+```
+
+Never return `passwordHash`.
+
+**Errors:** `400` (invalid request), `403` (organization roles cannot be
+self-registered), `409` (email already registered), `429` (rate limit).
+
+---
+
+## POST `/auth/verify-email-otp`
+
+Marks the account verified after a correct emailed code and issues the first
+normal access token.
+
+### Request
+
+```json
+{
+  "email": "aisha@example.com",
+  "code": "123456"
+}
+```
+
+### Rules
+
+* The code is six numeric digits.
+* The code is checked against its hash using a constant-time comparison.
+* Codes are single-use; a used, expired (>10 minutes), or exhausted (5 failed
+  attempts) code cannot be replayed.
+* Every failure returns the same `400 INVALID_OTP` so the endpoint cannot be
+  used to probe which codes are valid.
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "uuid",
+      "firstName": "Aisha",
+      "lastName": "Abdullah",
+      "email": "aisha@example.com",
+      "emailVerified": true,
       "role": "PARTICIPANT",
       "country": "Nigeria"
     },
@@ -154,13 +220,46 @@ Creates a new user account.
 }
 ```
 
-Never return `passwordHash`.
+**Errors:** `400` (invalid request, or invalid/expired/unusable code), `403`
+(account disabled), `429` (rate limit).
+
+---
+
+## POST `/auth/resend-email-verification`
+
+Sends a new `EMAIL_VERIFICATION` code. Enumeration-safe: the response is
+identical whether or not the email exists.
+
+### Request
+
+```json
+{
+  "email": "aisha@example.com"
+}
+```
+
+### Rules
+
+* A new code is only sent to a real, **unverified**, active account.
+* A 60-second resend cooldown applies; further resends are ignored.
+* The response does not reveal whether an email exists or whether a message was sent.
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+**Errors:** `400` (invalid request), `429` (rate limit).
 
 ---
 
 # 6. POST `/auth/login`
 
-Authenticates a user.
+Authenticates a user with a **verified** email.
 
 ### Request
 
@@ -182,6 +281,7 @@ Authenticates a user.
       "firstName": "Aisha",
       "lastName": "Abdullah",
       "email": "aisha@example.com",
+      "emailVerified": true,
       "role": "PARTICIPANT"
     },
     "accessToken": "token"
@@ -189,9 +289,13 @@ Authenticates a user.
 }
 ```
 
-Invalid credentials should return a generic authentication error.
+Invalid credentials return a generic `401 INVALID_CREDENTIALS` error.
 
 Do not reveal whether an email exists.
+
+**Errors:** `400` (invalid request), `401` (invalid email or password), `403`
+(account disabled, or account email not yet verified — `ACCOUNT_UNVERIFIED`),
+`429` (rate limit).
 
 ---
 
@@ -208,7 +312,7 @@ Required.
 ```json
 {
   "success": true,
-  "message": "Logged out successfully"
+  "data": {}
 }
 ```
 
@@ -234,6 +338,7 @@ Required.
     "firstName": "Aisha",
     "lastName": "Abdullah",
     "email": "aisha@example.com",
+    "emailVerified": true,
     "country": "Nigeria",
     "role": "PARTICIPANT"
   }
@@ -244,7 +349,8 @@ Required.
 
 # 9. POST `/auth/forgot-password`
 
-Requests a password reset.
+Requests a password reset. Enumeration-safe: the response is identical whether
+or not the email exists.
 
 ### Request
 
@@ -254,58 +360,94 @@ Requests a password reset.
 }
 ```
 
+### Rules
+
+* A `PASSWORD_RESET` code is emailed **only** to a real, verified, active account.
+* The verification code is never returned through this endpoint.
+* No reset token is ever returned by `forgot-password`.
+
 ### Response
 
-Always return a generic success message to prevent account enumeration.
-
 ```json
 {
   "success": true,
-  "message": "If an account exists, password reset instructions have been sent."
+  "data": {}
 }
 ```
 
-For the hackathon MVP, email delivery may be mocked if a real email provider is not available.
-
-#### Development-only reset token
-
-When the backend runs outside `production`, the response additionally returns the
-raw one-time token so demo/QA flows can complete the reset without an email
-provider. The raw token is never returned in production, persisted, or logged.
-
-```json
-{
-  "success": true,
-  "message": "If an account exists, password reset instructions have been sent.",
-  "data": {
-    "resetToken": "dev-only-token"
-  }
-}
-```
+**Errors:** `400` (invalid request), `429` (rate limit).
 
 ---
 
-# 10. POST `/auth/reset-password`
+## POST `/auth/verify-reset-otp`
 
-Resets a password using a valid reset token.
+Validates the `PASSWORD_RESET` code and returns a single-use, opaque reset token.
 
 ### Request
 
 ```json
 {
-  "token": "reset-token",
-  "password": "NewSecurePassword123!"
+  "email": "aisha@example.com",
+  "code": "123456"
 }
 ```
+
+### Rules
+
+* Same code handling as `/auth/verify-email-otp` (single-use, 10-minute expiry,
+  max 5 attempts, constant-time comparison, enumeration-safe `400 INVALID_OTP`).
+* On success a cryptographically random, single-use, opaque reset token is
+  issued and only its SHA-256 hash is persisted. The token is **not** a JWT.
+* The returned token is valid for 15 minutes and is accepted only by
+  `/auth/reset-password`.
 
 ### Response
 
 ```json
 {
   "success": true,
-  "message": "Password reset successfully"
+  "data": {
+    "resetToken": "opaque-single-use-token"
+  }
 }
 ```
+
+**Errors:** `400` (invalid request, or invalid/expired/unusable code), `429`
+(rate limit).
+
+---
+
+# 10. POST `/auth/reset-password`
+
+Resets a password using a valid opaque reset token.
+
+### Request
+
+```json
+{
+  "token": "opaque-single-use-token",
+  "password": "NewSecurePassword123!"
+}
+```
+
+### Rules
+
+* Only the token returned by `/auth/verify-reset-otp` is accepted.
+* The token is single-use: a successful reset consumes it, and a replayed
+  token is rejected.
+* A reset invalidates previously issued reset tokens for the account.
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+**Errors:** `400` (invalid request, or invalid/expired/used token), `429` (rate
+limit).
 
 ---
 
@@ -1623,6 +1765,8 @@ RESOURCE_ALREADY_EXISTS
 INVALID_TOKEN
 TOKEN_EXPIRED
 ACCOUNT_DISABLED
+ACCOUNT_UNVERIFIED
+INVALID_OTP
 OWNERSHIP_ERROR
 ORGANIZATION_ACCESS_DENIED
 PROGRAM_ACCESS_DENIED
@@ -1632,6 +1776,12 @@ DATABASE_ERROR
 RATE_LIMIT_EXCEEDED
 INTERNAL_SERVER_ERROR
 ```
+
+* `ACCOUNT_UNVERIFIED` (`403`): login was attempted before the email was
+  verified via `/auth/verify-email-otp`.
+* `INVALID_OTP` (`400`): a verification/reset code is missing, wrong, expired,
+  used, or exhausted. The response is identical on every failure so the endpoint
+  cannot be used to enumerate valid codes.
 
 ---
 

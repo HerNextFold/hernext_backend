@@ -10,6 +10,7 @@ import {
 import {
   insertParticipantProfile,
   insertUser,
+  markUserVerified,
 } from '../src/models/user.model.js';
 import { upsertCareerProfile } from '../src/models/career-profile.model.js';
 import {
@@ -99,7 +100,14 @@ async function seedDemoUser(client: Db): Promise<void> {
     [DEMO_EMAIL],
   );
   if (existing !== null) {
-    console.log(`Demo user ${DEMO_EMAIL} already exists. Skipping demo seeding.`);
+    // A pre-existing demo account (created before email verification was
+    // introduced) must be marked verified or it cannot log in. Idempotent.
+    await queryText(
+      client,
+      'UPDATE "users" SET "emailVerified" = true, "verifiedAt" = COALESCE("verifiedAt", now()), "updatedAt" = now() WHERE "id" = $1',
+      [existing.id],
+    );
+    console.log(`Demo user ${DEMO_EMAIL} already exists. Ensured it is email-verified.`);
     return;
   }
 
@@ -112,6 +120,7 @@ async function seedDemoUser(client: Db): Promise<void> {
     role: DEMO_ROLE,
     country: 'Nigeria',
   });
+  await markUserVerified(client, user.id);
   const participant = await insertParticipantProfile(client, user.id);
 
   // Career profile: Aisha wants to move from her informal POS business into a

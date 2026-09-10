@@ -12,8 +12,11 @@ import {
 
 const AUTH_RATE_LIMITS = {
   register: { max: 20, timeWindow: 15 * 60 * 1000 },
+  verifyEmailOtp: { max: 10, timeWindow: 10 * 60 * 1000 },
+  resendEmailVerification: { max: 5, timeWindow: 10 * 60 * 1000 },
   login: { max: 10, timeWindow: 10 * 60 * 1000 },
   forgotPassword: { max: 10, timeWindow: 10 * 60 * 1000 },
+  verifyResetOtp: { max: 10, timeWindow: 10 * 60 * 1000 },
   resetPassword: { max: 10, timeWindow: 10 * 60 * 1000 },
 } as const;
 
@@ -46,11 +49,21 @@ const loginBodySchema = {
   },
 } as const;
 
-const forgotPasswordBodySchema = {
+const emailBodySchema = {
   type: 'object',
   required: ['email'],
   additionalProperties: false,
   properties: { email: { type: 'string', format: 'email', maxLength: 254 } },
+} as const;
+
+const verifyCodeBodySchema = {
+  type: 'object',
+  required: ['email', 'code'],
+  additionalProperties: false,
+  properties: {
+    email: { type: 'string', format: 'email', maxLength: 254 },
+    code: { type: 'string', pattern: '^\\d{6}$', description: 'Six-digit code sent by email' },
+  },
 } as const;
 
 const resetPasswordBodySchema = {
@@ -58,7 +71,7 @@ const resetPasswordBodySchema = {
   required: ['token', 'password'],
   additionalProperties: false,
   properties: {
-    token: { type: 'string', minLength: 32, maxLength: 512, description: 'Single-use password reset token' },
+    token: { type: 'string', minLength: 32, maxLength: 512, description: 'Single-use opaque reset token (NOT a JWT)' },
     password: { type: 'string', minLength: 8, maxLength: 128 },
   },
 } as const;
@@ -75,13 +88,28 @@ const authenticatedResponse = {
   },
 } as const;
 
-const forgotPasswordResponse = {
+const registerResponseData = {
   type: 'object',
+  required: ['user', 'verificationStatus'],
+  additionalProperties: false,
+  properties: {
+    user: publicUserSchema,
+    verificationStatus: {
+      type: 'string',
+      const: 'PENDING',
+      description: 'The account is UNVERIFIED until /auth/verify-email-otp succeeds. No access token is issued.',
+    },
+  },
+} as const;
+
+const resetTokenResponse = {
+  type: 'object',
+  required: ['resetToken'],
   additionalProperties: false,
   properties: {
     resetToken: {
       type: 'string',
-      description: 'Development-only one-time reset token; never returned in production (docs/API_CONTRACT.md §9).',
+      description: 'Single-use opaque reset token valid for 15 minutes. Not a JWT.',
     },
   },
 } as const;
@@ -107,7 +135,10 @@ export function registerAuthModule(app: FastifyInstance, service: AuthService): 
           schema: {
             tags: ['Auth'],
             summary: 'Register a new participant account',
-            description: 'Creates a participant account. Organization roles cannot be self-registered.',
+            description:
+              'Creates a UNVERIFIED participant account and emails a 6-digit verification code. ' +
+              'No access token is returned; call /auth/verify-email-otp to verify and obtain the first token. ' +
+              'Organization roles cannot be self-registered.',
             operationId: 'authRegister',
             body: bodySchema(
               'Participant registration details',
@@ -122,7 +153,7 @@ export function registerAuthModule(app: FastifyInstance, service: AuthService): 
               },
             ),
             response: {
-              201: okResponse('Account created', authenticatedResponse.success),
+              201: okResponse('Account created (UNVERIFIED), verification code emailed', registerResponseData),
               400: errResponse('Invalid request data'),
               403: errResponse('Organization roles cannot be self-registered'),
               409: errResponse('Email already registered'),
@@ -134,12 +165,61 @@ export function registerAuthModule(app: FastifyInstance, service: AuthService): 
       );
 
       scope.post(
+        '/verify-email-otp',
+        {
+          config: { rateLimit: AUTH_RATE_LIMITS.verifyEmailOtp },
+          schema: {
+            tags: ['Auth'],
+            summary: 'Verify a registration email with a one-time code',
+            description:
+              'Validates the EMAIL_VERIFICATION code sent at registration, marks the account verified, ' +
+              'and issues the first normal access token. Enumeration-safe: every failure returns the same error.',
+            operationId: 'authVerifyEmailOtp',
+            body: bodySchema('Email and six-digit code', verifyCodeBodySchema, {
+              email: 'aisha@example.com',
+              code: '123456',
+            }),
+            response: {
+              200: okResponse('Email verified; returns the account and a JWT access token', authenticatedResponse.success),
+              400: errResponse('Invalid request data, or invalid/expired/unusable code'),
+              403: errResponse('Account disabled'),
+              429: errResponse('Rate limit exceeded'),
+            },
+          },
+        },
+        (request, reply) => controller.verifyEmailOtp(request, reply),
+      );
+
+      scope.post(
+        '/resend-email-verification',
+        {
+          config: { rateLimit: AUTH_RATE_LIMITS.resendEmailVerification },
+          schema: {
+            tags: ['Auth'],
+            summary: 'Resend the registration email verification code',
+            description:
+              'Enumeration-safe: always returns the same outcome. A new code is only sent to a real, unverified, ' +
+              'active account, subject to a 60-second resend cooldown.',
+            operationId: 'authResendEmailVerification',
+            body: bodySchema('Account email address', emailBodySchema, { email: 'aisha@example.com' }),
+            response: {
+              200: okResponse('Same generic outcome for every request', emptyDataResponse.success),
+              400: errResponse('Invalid request data'),
+              429: errResponse('Rate limit exceeded'),
+            },
+          },
+        },
+        (request, reply) => controller.resendEmailVerification(request, reply),
+      );
+
+      scope.post(
         '/login',
         {
           config: { rateLimit: AUTH_RATE_LIMITS.login },
           schema: {
             tags: ['Auth'],
             summary: 'Authenticate with email and password',
+            description: 'Requires a verified email. Unverified accounts are rejected with ACCOUNT_UNVERIFIED.',
             operationId: 'authLogin',
             body: bodySchema(
               'Login credentials',
@@ -150,7 +230,7 @@ export function registerAuthModule(app: FastifyInstance, service: AuthService): 
               200: okResponse('Authenticated; returns a JWT access token', authenticatedResponse.success),
               400: errResponse('Invalid request data'),
               401: errResponse('Invalid email or password'),
-              403: errResponse('Account disabled'),
+              403: errResponse('Account disabled, or account email not yet verified (ACCOUNT_UNVERIFIED)'),
               429: errResponse('Rate limit exceeded'),
             },
           },
@@ -183,21 +263,49 @@ export function registerAuthModule(app: FastifyInstance, service: AuthService): 
           schema: {
             tags: ['Auth'],
             summary: 'Request a password reset',
-            description: 'Enumeration-safe: the same response is returned whether or not the email exists.',
+            description:
+              'Enumeration-safe: the same response is returned whether or not the email exists. ' +
+              'A PASSWORD_RESET code is only emailed to verified, active accounts. No token is ever returned.',
             operationId: 'authForgotPassword',
             body: bodySchema(
               'Account email address',
-              forgotPasswordBodySchema,
+              emailBodySchema,
               { email: 'aisha@example.com' },
             ),
             response: {
-              200: okResponse('If an account exists, password reset instructions have been sent.', forgotPasswordResponse),
+              200: okResponse('Same generic outcome for every request', emptyDataResponse.success),
               400: errResponse('Invalid request data'),
               429: errResponse('Rate limit exceeded'),
             },
           },
         },
         (request, reply) => controller.forgotPassword(request, reply),
+      );
+
+      scope.post(
+        '/verify-reset-otp',
+        {
+          config: { rateLimit: AUTH_RATE_LIMITS.verifyResetOtp },
+          schema: {
+            tags: ['Auth'],
+            summary: 'Verify a password-reset code and mint a reset token',
+            description:
+              'Validates the PASSWORD_RESET code emailed by /auth/forgot-password and returns a single-use, ' +
+              'opaque reset token valid for 15 minutes. The token is NOT a JWT and is only accepted by ' +
+              '/auth/reset-password.',
+            operationId: 'authVerifyResetOtp',
+            body: bodySchema('Email and six-digit code', verifyCodeBodySchema, {
+              email: 'aisha@example.com',
+              code: '123456',
+            }),
+            response: {
+              200: okResponse('Code verified; returns the single-use reset token', resetTokenResponse),
+              400: errResponse('Invalid request data, or invalid/expired/unusable code'),
+              429: errResponse('Rate limit exceeded'),
+            },
+          },
+        },
+        (request, reply) => controller.verifyResetOtp(request, reply),
       );
 
       scope.post(

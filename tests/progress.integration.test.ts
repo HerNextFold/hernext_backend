@@ -7,6 +7,7 @@ import { loadEnv } from '../src/config/env.js';
 import { checkDatabaseConnection, closeDb, initDb, getPool, queryRow, queryText } from '../src/lib/db.js';
 import { deleteUserByEmail } from '../src/models/user.model.js';
 import { insertRoadmap, insertRoadmapTask } from '../src/models/roadmap.model.js';
+import { readLatestOtp } from './helpers/auth.js';
 
 // Exercises progress + roadmap task completion against the real database.
 // Run with npm run test:db.
@@ -107,7 +108,14 @@ describe.runIf(runDbTests)('progress API (integration)', () => {
       },
     });
     expect(response.statusCode).toBe(201);
-    const token = response.json().data.accessToken as string;
+    const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
+    const verify = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/verify-email-otp',
+      payload: { email, code },
+    });
+    expect(verify.statusCode).toBe(200);
+    const token = verify.json().data.accessToken as string;
     const user = await queryRow<{ id: string }>(getPool(), 'SELECT "id" FROM "users" WHERE "email" = $1', [email]);
     if (user === null) {
       throw new Error('Expected created user.');

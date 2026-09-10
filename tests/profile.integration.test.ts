@@ -6,6 +6,7 @@ import { buildApp } from '../src/app.js';
 import { loadEnv } from '../src/config/env.js';
 import { checkDatabaseConnection, closeDb, getPool, initDb, queryText } from '../src/lib/db.js';
 import { deleteUserByEmail } from '../src/models/user.model.js';
+import { readLatestOtp } from './helpers/auth.js';
 
 // Exercises the GET/PUT /profile API against the real database. Run with
 // npm run test:db. Requires migration 003 (career_profiles unique).
@@ -50,7 +51,14 @@ describe.runIf(runDbTests)('career profile API (integration)', () => {
       payload: { firstName: 'Prof', lastName: 'Tester', email, password: PASSWORD, country: 'Nigeria' },
     });
     expect(response.statusCode).toBe(201);
-    const body = response.json();
+    const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
+    const verify = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/verify-email-otp',
+      payload: { email, code },
+    });
+    expect(verify.statusCode).toBe(200);
+    const body = verify.json();
     return { token: body.data.accessToken as string, userId: body.data.user.id as string };
   }
 
