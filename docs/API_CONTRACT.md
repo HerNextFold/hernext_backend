@@ -1120,6 +1120,13 @@ Returns dashboard-ready progress information.
   "data": {
     "currentCareerGoal": "Fintech Operations Associate",
     "careerReadiness": 78,
+    "readinessLabel": "Developing",
+    "readinessBreakdown": {
+      "experience": 50,
+      "skills": 85,
+      "aiReadiness": 80,
+      "evidence": 75
+    },
     "roadmapProgress": 75,
     "aiImpact": {
       "score": 58,
@@ -1132,6 +1139,10 @@ Returns dashboard-ready progress information.
   }
 }
 ```
+
+The `readinessBreakdown` surfaces the four Career Readiness components
+(Experience, Skills, AI Readiness, Evidence) so the dashboard can show what is
+contributing to the score (docs/PRODUCT_SPEC.md §23).
 
 ---
 

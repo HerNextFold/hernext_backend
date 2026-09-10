@@ -38,12 +38,25 @@ const progressResponseSchema = {
   },
 } as const;
 
+const readinessBreakdownSchema = {
+  type: 'object',
+  required: ['experience', 'skills', 'aiReadiness', 'evidence'],
+  additionalProperties: false,
+  properties: {
+    experience: { type: 'number', minimum: 0, maximum: 100 },
+    skills: { type: 'number', minimum: 0, maximum: 100 },
+    aiReadiness: { type: 'number', minimum: 0, maximum: 100 },
+    evidence: { type: 'number', minimum: 0, maximum: 100 },
+  },
+} as const;
+
 const progressSummaryResponseSchema = {
   type: 'object',
   required: [
     'currentCareerGoal',
     'careerReadiness',
     'readinessLabel',
+    'readinessBreakdown',
     'roadmapProgress',
     'aiImpact',
     'skillsDeveloped',
@@ -56,6 +69,7 @@ const progressSummaryResponseSchema = {
     currentCareerGoal: { type: ['string', 'null'] },
     careerReadiness: { type: 'number', minimum: 0, maximum: 100 },
     readinessLabel: { type: 'string', enum: [...READINESS_LABELS] },
+    readinessBreakdown: readinessBreakdownSchema,
     roadmapProgress: { type: 'number', minimum: 0, maximum: 100 },
     aiImpact: impactSnapshotSchema,
     skillsDeveloped: { type: 'integer', minimum: 0 },

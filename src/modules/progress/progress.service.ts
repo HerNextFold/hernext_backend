@@ -47,6 +47,12 @@ export interface ProgressSummaryResponse {
   currentCareerGoal: string | null;
   careerReadiness: number;
   readinessLabel: string;
+  readinessBreakdown: {
+    experience: number;
+    skills: number;
+    aiReadiness: number;
+    evidence: number;
+  };
   roadmapProgress: number;
   aiImpact: { score: number; level: string } | null;
   skillsDeveloped: number;
@@ -82,6 +88,12 @@ export class ProgressService {
       currentCareerGoal: metrics.targetCareerName,
       careerReadiness: readiness.score,
       readinessLabel: readiness.label,
+      readinessBreakdown: {
+        experience: readiness.breakdown.experience,
+        skills: readiness.breakdown.skills,
+        aiReadiness: readiness.breakdown.aiReadiness,
+        evidence: readiness.breakdown.evidence,
+      },
       roadmapProgress: progress.roadmapProgress,
       aiImpact: metrics.latestAiImpact
         ? { score: metrics.latestAiImpact.score, level: metrics.latestAiImpact.level }

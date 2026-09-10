@@ -152,6 +152,7 @@ describe.runIf(runDbTests)('progress API (integration)', () => {
     const data = response.json().data;
     expect(data.currentCareerGoal).toBeNull();
     expect(data.careerReadiness).toBe(0);
+    expect(data.readinessBreakdown).toEqual({ experience: 0, skills: 0, aiReadiness: 0, evidence: 0 });
     expect(data.roadmapProgress).toBe(0);
     expect(data.aiImpact).toBeNull();
     expect(data.skillsDeveloped).toBe(0);

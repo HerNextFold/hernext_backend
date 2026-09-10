@@ -33,6 +33,7 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     globals: false,
+    setupFiles: ['./tests/vitest.setup.ts'],
     // Deterministic, resource-light execution for the hackathon VM. First
     // requests can be slow while dependencies compile, so give tests headroom.
     fileParallelism: false,

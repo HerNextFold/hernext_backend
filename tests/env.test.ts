@@ -49,10 +49,14 @@ describe('loadEnv', () => {
   });
 
   it('requires Brevo credentials when EMAIL_PROVIDER=brevo', () => {
+    // Explicitly clear Brevo credentials: the test must not inherit values that
+    // happen to be present in the local process environment / .env file.
     const bad = {
       ...process.env,
       NODE_ENV: 'production',
       EMAIL_PROVIDER: 'brevo',
+      BREVO_API_KEY: undefined,
+      BREVO_SENDER_EMAIL: undefined,
     };
     expect(() => loadEnv(bad)).toThrow(/BREVO_API_KEY, BREVO_SENDER_EMAIL is required/);
 
