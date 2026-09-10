@@ -66,6 +66,16 @@ const ROUTE_MATRIX: DocMatrixEntry[] = [
   { method: 'POST', path: '/api/v1/passport/generate', hasBody: true },
   { method: 'GET', path: '/api/v1/passport/public/:slug', public: true },
 
+  { method: 'POST', path: '/api/v1/organizations', hasBody: true },
+  { method: 'GET', path: '/api/v1/organizations/:organizationId' },
+  { method: 'POST', path: '/api/v1/organizations/:organizationId/programs', hasBody: true },
+  { method: 'GET', path: '/api/v1/organizations/:organizationId/programs' },
+  { method: 'POST', path: '/api/v1/programs/:programId/participants', hasBody: true },
+  { method: 'GET', path: '/api/v1/programs/:programId/participants' },
+  { method: 'GET', path: '/api/v1/programs/:programId/participants/:participantId' },
+  { method: 'GET', path: '/api/v1/programs/:programId/analytics' },
+  { method: 'GET', path: '/api/v1/programs/:programId/report' },
+
   { method: 'GET', path: '/health', public: true },
 ];
 

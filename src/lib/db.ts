@@ -3,10 +3,10 @@ import type { AppConfig } from '../config/env.js';
 
 let pool: Pool | undefined;
 
-function createPool(databaseUrl: string, sslRequired: boolean): Pool {
+function createPool(databaseUrl: string, sslRequired: boolean, poolMax: number): Pool {
   const options: PoolConfig = {
     connectionString: databaseUrl,
-    max: 10,
+    max: poolMax,
     connectionTimeoutMillis: 10000,
     query_timeout: 15000,
     statement_timeout: 15000,
@@ -20,16 +20,25 @@ function createPool(databaseUrl: string, sslRequired: boolean): Pool {
     options.ssl = sslRequired ? { rejectUnauthorized: false } : false;
   }
 
-  return new Pool(options);
+  const pool = new Pool(options);
+
+  // Discard clients the server has closed (Neon reaps idle connections).
+  // Without this handler pg surfaces them as uncaught 'error' events and the
+  // pool never forgets the dead clients (docs/AGENTS.md §14, §49).
+  pool.on('error', (error) => {
+    console.error('Idle database client error; it will be replaced.', error);
+  });
+
+  return pool;
 }
 
 /**
  * Initialises the shared connection pool exactly once. Must be called during
  * application bootstrap (see src/server.ts) before models run queries.
  */
-export function initDb(config: Pick<AppConfig, 'databaseUrl' | 'dbSsl'>): Pool {
+export function initDb(config: Pick<AppConfig, 'databaseUrl' | 'dbSsl' | 'dbPoolMax'>): Pool {
   if (pool === undefined) {
-    pool = createPool(config.databaseUrl, config.dbSsl);
+    pool = createPool(config.databaseUrl, config.dbSsl, config.dbPoolMax);
   }
   return pool;
 }

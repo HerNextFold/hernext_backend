@@ -29,6 +29,11 @@ import { EvidenceService } from './modules/evidence/evidence.service.js';
 import { registerEvidenceModule } from './modules/evidence/evidence.routes.js';
 import { PassportService } from './modules/passport/passport.service.js';
 import { registerPassportModule } from './modules/passport/passport.routes.js';
+import { OrganizationService } from './modules/organizations/organization.service.js';
+import { registerOrganizationModule } from './modules/organizations/organization.routes.js';
+import { ProgramService } from './modules/programs/program.service.js';
+import { ProgramMonitoringService } from './modules/programs/program-monitoring.service.js';
+import { registerProgramModule } from './modules/programs/program.routes.js';
 import { GeminiProvider } from './modules/ai/providers/gemini.provider.js';
 import { OpenAiCompatibleProvider } from './modules/ai/providers/openai-compatible.provider.js';
 import { UnconfiguredProvider } from './modules/ai/providers/llm.provider.js';
@@ -52,7 +57,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerCors(app, config.frontendUrl);
   registerSwagger(app);
   registerAuth(app, config);
-  registerRateLimit(app);
+  registerRateLimit(app, config);
 
   // Access tokens are signed here so the service never touches raw secrets.
   const authService = new AuthService({
@@ -86,6 +91,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerChallengeModule(app, new ChallengeService(achievementService));
   registerEvidenceModule(app, new EvidenceService());
   registerPassportModule(app, new PassportService(achievementService));
+
+  registerOrganizationModule(app, new OrganizationService());
+  const programService = new ProgramService();
+  registerProgramModule(app, programService, new ProgramMonitoringService(programService));
 
   // Liveness + database connectivity probe. The database result is advisory;
   // the endpoint never fails because of an unavailable database.

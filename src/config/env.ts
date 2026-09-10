@@ -24,6 +24,7 @@ const appEnvSchema = z.object({
       { message: 'DATABASE_URL must be a valid postgresql:// connection string' },
     ),
   DB_SSL: booleanFromEnv(true),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
   JWT_EXPIRES_IN: z.string().min(1).default('15m'),
@@ -40,6 +41,7 @@ export type AppConfig = {
   port: number;
   databaseUrl: string;
   dbSsl: boolean;
+  dbPoolMax: number;
   jwtSecret: string;
   jwtRefreshSecret: string;
   jwtExpiresIn: string;
@@ -71,6 +73,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     port: env.PORT,
     databaseUrl: env.DATABASE_URL,
     dbSsl: env.DB_SSL,
+    dbPoolMax: env.DB_POOL_MAX,
     jwtSecret: env.JWT_SECRET,
     jwtRefreshSecret: env.JWT_REFRESH_SECRET,
     jwtExpiresIn: env.JWT_EXPIRES_IN,

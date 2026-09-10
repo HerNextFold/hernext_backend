@@ -18,6 +18,7 @@
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
     "db:seed:demo": "tsx db/seed-demo.ts",
+    "db:seed:demo:org": "tsx db/seed-demo-org.ts",
     "db:check": "tsx db/check-connection.ts"
   },
   "keywords": [

@@ -1312,7 +1312,16 @@ Missing and non-public slugs return the same `404` so the endpoint leaks nothing
 
 # 32. Organizations
 
-Organization endpoints require `ORGANIZATION_ADMIN` authorization unless otherwise stated.
+Organization endpoints are authenticated and authorized by the authenticated
+user's organization membership (never a client-supplied organization id - see
+§48). Role requirements:
+
+```text
+ADMIN   manages the organization: creates programs, enrolls participants
+MEMBER  view-only: organization, programs, participants, analytics, reports
+```
+
+The creator of an organization becomes its `ADMIN`.
 
 ---
 
@@ -1340,7 +1349,7 @@ Returns organization information.
 
 ### Authorization
 
-The authenticated user must belong to the organization.
+The authenticated user must belong to the organization (ADMIN or MEMBER).
 
 ---
 
@@ -1369,6 +1378,10 @@ User must be an admin of the organization.
 
 Returns programs belonging to the organization.
 
+### Authorization
+
+The authenticated user must belong to the organization (ADMIN or MEMBER).
+
 ---
 
 # 37. POST `/programs/:programId/participants`
@@ -1387,7 +1400,11 @@ The organization must own the program.
 
 The participant must exist.
 
-A participant cannot be added twice.
+A participant cannot be added twice (409 `RESOURCE_ALREADY_EXISTS`).
+
+The authenticated user must be an admin of the organization that owns the program.
+
+The participant must exist (404 `RESOURCE_NOT_FOUND` if not).
 
 ---
 
@@ -1416,6 +1433,10 @@ Returns participants belonging to the program.
 
 Only information appropriate for the organization context should be returned.
 
+### Authorization
+
+The authenticated user must belong to the organization that owns the program (ADMIN or MEMBER).
+
 ---
 
 # 39. GET `/programs/:programId/participants/:participantId`
@@ -1424,9 +1445,9 @@ Returns detailed progress for a participant in the program.
 
 ### Authorization
 
-The participant must belong to the specified program.
+The participant must belong to the specified program (404 `RESOURCE_NOT_FOUND` if not).
 
-The organization admin must own the program through their organization membership.
+The authenticated user must belong to the organization that owns the program (ADMIN or MEMBER).
 
 ---
 
@@ -1452,9 +1473,29 @@ Returns aggregate program analytics.
 }
 ```
 
-Analytics are calculated from program participants.
+Analytics are calculated from program participants only:
+
+```text
+totalParticipants        = enrolled participants
+activeParticipants       = participant with activity within the last 14 days
+assessmentCompletion     = completed career analyses / participants, %
+averageReadiness         = readiness score averaged over participants with a
+                           completed career analysis (others excluded)
+averageRoadmapProgress   = current roadmap progress averaged over participants
+                           with an active roadmap (others excluded)
+challengesCompleted      = total completed challenge submissions
+evidenceCreated          = total evidence records
+passportsCreated         = total career passports
+```
+
+All percentages are rounded to whole numbers. Zero participants yields 0 for
+every percentage (no division by zero). See `SCORING_LOGIC.md` §42-§47.
 
 Do not expose unnecessary individual private information.
+
+### Authorization
+
+The authenticated user must belong to the organization that owns the program (ADMIN or MEMBER).
 
 ---
 
@@ -1474,16 +1515,29 @@ Returns a program impact report.
     },
     "participants": 100,
     "participationRate": 78,
+    "statusDistribution": {
+      "ON_TRACK": 62,
+      "NEEDS_ATTENTION": 25,
+      "AT_RISK": 13
+    },
     "assessmentCompletion": 82,
     "averageReadiness": 71,
     "averageRoadmapProgress": 64,
-    "skillsDeveloped": [],
+    "skillsDeveloped": 14,
     "challengesCompleted": 145,
     "evidenceCreated": 119,
     "passportsCreated": 68
   }
 }
 ```
+
+`participationRate` = `activeParticipants / totalParticipants * 100`.
+`statusDistribution` sums to `participants`. `skillsDeveloped` is the number of
+distinct skills inferred across participants.
+
+### Authorization
+
+The authenticated user must belong to the organization that owns the program (ADMIN or MEMBER).
 
 The MVP may return JSON only. PDF export can be added later if time permits.
 
