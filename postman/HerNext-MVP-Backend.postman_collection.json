@@ -1,0 +1,3595 @@
+{
+  "info": {
+    "name": "HerNext MVP Backend (Pre-Deployment QA)",
+    "_postman_id": "5f5e5a91-0001-4f4c-aa66-hernextqa01",
+    "description": "Executable QA suite for the HerNext (Team FiveFold) backend, generated from the verified route inventory and docs/API_CONTRACT.md. Two execution modes: (A) Fast regression via seeded demo accounts (no OTP) - run folders 00, 02, then 05-13; (B) Deep fresh-account gate (manual OTP) - run folder 01 to register+verify a brand-new account, then 03, 05-13. Replace {{testEmailDomain}} with a mailbox you can actually read. See docs/POSTMAN_TESTING.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000", "type": "string" },
+    { "key": "apiPrefix", "value": "/api/v1", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "00 - Health & Docs",
+      "item": [
+        {
+          "name": "GET /health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('GET /health returns 200 success envelope', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.status).to.eql('ok');",
+                  "  pm.expect(['connected','disconnected']).to.include(b.data.database);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /docs (Swagger UI)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('GET /docs renders Swagger UI', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/docs",
+              "host": ["{{baseUrl}}"],
+              "path": ["docs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /docs/json (OpenAPI)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('GET /docs/json returns a valid OpenAPI document', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.openapi).to.be.a('string');",
+                  "  pm.expect(b.paths).to.be.an('object');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/docs/json",
+              "host": ["{{baseUrl}}"],
+              "path": ["docs", "json"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "01 - Auth: Fresh Registration + Email Verification [MANUAL OTP]",
+      "item": [
+        {
+          "name": "Register participant (unique email)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const prefix = pm.environment.get('testEmailPrefix') || 'qa.hernext';",
+                  "const domain = pm.environment.get('testEmailDomain') || 'your-mailbox.invalid';",
+                  "const email = prefix + '-' + Date.now() + '@' + domain;",
+                  "pm.environment.set('testEmail', email);",
+                  "pm.environment.set('loginEmail', email);",
+                  "pm.environment.set('loginPassword', pm.environment.get('testPassword'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('register returns 201 UNVERIFIED with no accessToken', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.verificationStatus).to.eql('PENDING');",
+                  "  pm.expect(b.data.user.email).to.eql(pm.environment.get('testEmail'));",
+                  "  pm.expect(b.data.user.emailVerified).to.eql(false);",
+                  "  pm.expect(b.data.user.passwordHash).to.be.undefined;",
+                  "  pm.expect(b.data.accessToken).to.be.undefined;",
+                  "  pm.environment.set('userId', b.data.user.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Postman\",\n  \"lastName\": \"QA\",\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\",\n  \"country\": \"Nigeria\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register duplicate email (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('duplicate registration is rejected 409 RESOURCE_ALREADY_EXISTS', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(false);",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_ALREADY_EXISTS');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Postman\",\n  \"lastName\": \"QA\",\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\",\n  \"country\": \"Nigeria\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register invalid email (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('malformed email -> 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(false);",
+                  "  pm.expect(b.error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Postman\",\n  \"lastName\": \"QA\",\n  \"email\": \"not-an-email\",\n  \"password\": \"{{testPassword}}\",\n  \"country\": \"Nigeria\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register weak password (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('short password -> 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Postman\",\n  \"lastName\": \"QA\",\n  \"email\": \"weak@{{testEmailDomain}}\",\n  \"password\": \"short\",\n  \"country\": \"Nigeria\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register with organization role (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('self-registration as ORGANIZATION_ADMIN -> 403 FORBIDDEN', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('FORBIDDEN');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Postman\",\n  \"lastName\": \"QA\",\n  \"email\": \"org@{{testEmailDomain}}\",\n  \"password\": \"{{testPassword}}\",\n  \"country\": \"Nigeria\",\n  \"role\": \"ORGANIZATION_ADMIN\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login before verification (403 ACCOUNT_UNVERIFIED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unverified account cannot log in -> 403 ACCOUNT_UNVERIFIED', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('ACCOUNT_UNVERIFIED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resend email verification (generic 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('resend returns generic 200 for a real unverified account', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/resend-email-verification",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "resend-email-verification"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resend email verification for unknown email (generic 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('resend is enumeration-safe (same generic 200)', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@{{testEmailDomain}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/resend-email-verification",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "resend-email-verification"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify email OTP - wrong code (400 INVALID_OTP)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('wrong code -> 400 INVALID_OTP', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('INVALID_OTP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"code\": \"000000\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/verify-email-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "verify-email-otp"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify email OTP - correct code (MANUAL: paste code into emailOtp)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('correct code verifies account and issues first accessToken', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.user.emailVerified).to.eql(true);",
+                  "  pm.expect(b.data.accessToken).to.be.a('string');",
+                  "  pm.environment.set('accessToken', b.data.accessToken);",
+                  "  pm.environment.set('userId', b.data.user.id);",
+                  "  pm.environment.set('loginEmail', b.data.user.email);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"code\": \"{{emailOtp}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/verify-email-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "verify-email-otp"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify email OTP - reuse code (400 INVALID_OTP)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('used code cannot be replayed -> 400 INVALID_OTP', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('INVALID_OTP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"code\": \"{{emailOtp}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/verify-email-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "verify-email-otp"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - Auth: Demo Login (no OTP, prereq for folders 05-13)",
+      "item": [
+        {
+          "name": "Login as seeded demo participant (Aisha Abdullah)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('demo participant logs in with a JWT accessToken', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.user.email).to.eql(pm.environment.get('demoEmail'));",
+                  "  pm.expect(b.data.user.emailVerified).to.eql(true);",
+                  "  pm.expect(b.data.accessToken).to.be.a('string');",
+                  "  pm.environment.set('accessToken', b.data.accessToken);",
+                  "  pm.environment.set('userId', b.data.user.id);",
+                  "  pm.environment.set('loginEmail', b.data.user.email);",
+                  "  pm.environment.set('loginPassword', pm.environment.get('demoPassword'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{demoEmail}}\",\n  \"password\": \"{{demoPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Auth: Password Reset [MANUAL OTP]",
+      "item": [
+        {
+          "name": "Forgot password (generic 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('forgot-password returns generic 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.resetToken).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "forgot-password"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot password (unknown email, generic 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('forgot-password is enumeration-safe', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody@{{testEmailDomain}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "forgot-password"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify reset OTP - wrong code (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('wrong reset code -> 400 INVALID_OTP', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('INVALID_OTP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"code\": \"000000\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/verify-reset-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "verify-reset-otp"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify reset OTP - correct code (MANUAL: paste code into resetOtp)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('correct reset code returns a single-use resetToken', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.resetToken).to.be.a('string');",
+                  "  pm.expect(b.data.resetToken.length).to.be.at.least(32);",
+                  "  pm.environment.set('resetToken', b.data.resetToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"code\": \"{{resetOtp}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/verify-reset-otp",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "verify-reset-otp"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset password with token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('reset-password succeeds with the token', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.environment.set('loginPassword', pm.environment.get('newPassword'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "reset-password"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login with the new password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login works with the new password', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.accessToken).to.be.a('string');",
+                  "  pm.environment.set('accessToken', b.data.accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset token cannot be reused (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('single-use reset token is rejected on reuse -> 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "reset-password"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Auth: Identity & Sessions",
+      "item": [
+        {
+          "name": "GET /auth/me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('GET /auth/me returns the current public user without secrets', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.id).to.be.a('string');",
+                  "  pm.expect(b.data.email).to.be.a('string');",
+                  "  pm.expect(b.data.role).to.eql('PARTICIPANT');",
+                  "  pm.expect(b.data.passwordHash).to.be.undefined;",
+                  "  pm.expect(b.data.password).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "me"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login with wrong password (401 INVALID_CREDENTIALS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('wrong password -> 401 INVALID_CREDENTIALS', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('INVALID_CREDENTIALS');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"wrong-password-1234\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login correct (refresh token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login returns user + accessToken', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.user.email).to.eql(pm.environment.get('loginEmail'));",
+                  "  pm.expect(b.data.accessToken).to.be.a('string');",
+                  "  pm.environment.set('accessToken', b.data.accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /auth/logout (stateless no-op)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logout returns 200 (stateless JWT no-op by design)', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "logout"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Re-login after logout (still valid demonstration)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('re-login issues a fresh JWT', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.environment.set('accessToken', b.data.accessToken);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05 - Career Catalogue Discovery",
+      "item": [
+        {
+          "name": "GET /careers/recommendations?limit=3 (capture target career)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('recommendations return an array with valid catalogue career ids', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.recommendations.length).to.be.at.least(1);",
+                  "  const first = b.data.recommendations[0];",
+                  "  pm.expect(first.careerId).to.be.a('string');",
+                  "  pm.expect(first.careerName).to.be.a('string');",
+                  "  pm.expect(first.matchScore).to.be.a('number');",
+                  "  pm.expect(first.matchScore).to.be.at.least(0);",
+                  "  pm.expect(first.matchScore).to.be.at.most(100);",
+                  "  pm.expect(first.rank).to.be.at.least(1);",
+                  "  pm.environment.set('recommendedCareerId', first.careerId);",
+                  "  pm.environment.set('targetCareerId', pm.environment.get('targetCareerId') || first.careerId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/careers/recommendations?limit=3",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "careers", "recommendations"],
+              "query": [{ "key": "limit", "value": "3" }]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /challenges (capture challenge + skill ids)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('challenge catalogue lists both seeded MVP challenges', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.challenges.length).to.be.at.least(2);",
+                  "  let recon = null; let payment = null;",
+                  "  for (const c of b.data.challenges) {",
+                  "    if (c.title === 'Financial Reconciliation Challenge') recon = c.id;",
+                  "    if (c.title === 'Customer Payment Resolution Challenge') payment = c.id;",
+                  "  }",
+                  "  pm.expect(recon).to.be.a('string');",
+                  "  pm.expect(payment).to.be.a('string');",
+                  "  pm.environment.set('reconciliationChallengeId', recon);",
+                  "  pm.environment.set('paymentChallengeId', payment);",
+                  "  const first = b.data.challenges[0];",
+                  "  pm.expect(first.skills.length).to.be.at.least(1);",
+                  "  pm.environment.set('sampleSkillId', first.skills[0].skillId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/challenges",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "challenges"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /challenges?difficulty=BEGINNER",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('challenge filter by difficulty works', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  for (const c of b.data.challenges) {",
+                  "    pm.expect(c.difficulty).to.eql('BEGINNER');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/challenges?difficulty=BEGINNER",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "challenges"],
+              "query": [{ "key": "difficulty", "value": "BEGINNER" }]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06 - Profile & Experiences",
+      "item": [
+        {
+          "name": "PUT /profile (upsert career profile)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const targetCareerId = pm.environment.get('targetCareerId') || pm.environment.get('recommendedCareerId') || '';",
+                  "const body = {",
+                  "  currentOccupation: 'POS Business Owner',",
+                  "  industry: 'Financial Services',",
+                  "  yearsOfExperience: 4,",
+                  "  education: 'Secondary School Certificate',",
+                  "  employmentType: 'INFORMAL_WORKER',",
+                  "  careerInterests: ['Fintech operations', 'Digital payments'],",
+                  "  skillIds: []",
+                  "};",
+                  "if (targetCareerId) { body.targetCareerId = targetCareerId; }",
+                  "pm.request.body.raw = JSON.stringify(body, null, 2);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile upsert returns the saved career profile view', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.currentOccupation).to.eql('POS Business Owner');",
+                  "  pm.expect(b.data.employmentType).to.eql('INFORMAL_WORKER');",
+                  "  pm.expect(b.data.existingSkills).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile is retrievable with its target career', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.yearsOfExperience).to.eql(4);",
+                  "  pm.expect(b.data.industry).to.eql('Financial Services');",
+                  "  const target = b.data.targetCareerId || b.data.targetCareer;",
+                  "  if (b.data.targetCareerId) { pm.environment.set('targetCareerId', b.data.targetCareerId); }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /profile missing required field (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('incomplete profile body -> 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentOccupation\": \"POS Business Owner\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /experiences (create)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('experience is created', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.title).to.eql('POS Business Owner');",
+                  "  pm.expect(b.data.employmentType).to.eql('INFORMAL_WORKER');",
+                  "  pm.environment.set('experienceId', b.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"POS Business Owner\",\n  \"description\": \"Ran a Point of Sale terminal business. Recorded daily transactions, reconciled card and transfer totals against cash each evening, and resolved customer payment issues.\",\n  \"organization\": \"QA Agency\",\n  \"years\": 4,\n  \"employmentType\": \"INFORMAL_WORKER\",\n  \"startDate\": \"2021-01-15\",\n  \"endDate\": null\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/experiences",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "experiences"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /experiences (list)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('experience list contains the created entry', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  const found = b.data.experiences.some(e => e.id === pm.environment.get('experienceId'));",
+                  "  pm.expect(found).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/experiences",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "experiences"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /experiences/:id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('experience detail is retrievable', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.id).to.eql(pm.environment.get('experienceId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/experiences/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "experiences", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /experiences/:id (update)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('experience is updated', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.years).to.eql(5);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"years\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/experiences/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "experiences", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /experiences/:id (cleanup of QA fixture)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('experience is deleted', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.id).to.eql(pm.environment.get('experienceId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/experiences/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "experiences", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /experiences/:id after delete (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('deleted experience is gone -> 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/experiences/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "experiences", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07 - AI Career Intelligence (requires configured AI provider)",
+      "item": [
+        {
+          "name": "POST /ai/career-impact/:experienceId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('career impact assessment returns a structured, bounded result', function () {",
+                  "  // AI provider must be configured (AI_API_KEY). Without a key the API",
+                  "  // intentionally returns 503 AI_SERVICE_ERROR (documented safe failure).",
+                  "  if (pm.response.code === 503) {",
+                  "    const er = pm.response.json();",
+                  "    pm.expect(er.error.code).to.eql('AI_SERVICE_ERROR');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(true);",
+                  "  pm.expect(b.data.experienceId).to.eql(pm.environment.get('experienceId'));",
+                  "  pm.expect(b.data.score).to.be.at.least(0);",
+                  "  pm.expect(b.data.score).to.be.at.most(100);",
+                  "  pm.expect(['LOW','MODERATE','HIGH']).to.include(b.data.level);",
+                  "  pm.expect(b.data.automationTasks).to.be.an('array');",
+                  "  pm.expect(b.data.augmentedTasks).to.be.an('array');",
+                  "  pm.expect(b.data.humanStrengths).to.be.an('array');",
+                  "  pm.expect(b.data.explanation).to.be.a('string');",
+                  "  pm.environment.set('careerAnalysisId', b.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/career-impact/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "career-impact", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /ai/career-impact/:experienceId (read-first)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('stored assessment is retrievable without a provider call', function () {",
+                  "  if (pm.response.code === 404) {",
+                  "    const er = pm.response.json();",
+                  "    pm.expect(er.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.score).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/career-impact/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "career-impact", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /ai/transferable-skills/:experienceId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('transferable skills are catalogue-grounded', function () {",
+                  "  if (pm.response.code === 503) {",
+                  "    const er = pm.response.json();",
+                  "    pm.expect(er.error.code).to.eql('AI_SERVICE_ERROR');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.skills.length).to.be.at.least(1);",
+                  "  for (const s of b.data.skills) {",
+                  "    pm.expect(s.skillId).to.be.a('string');",
+                  "    pm.expect(s.confidence).to.be.at.least(0);",
+                  "    pm.expect(s.confidence).to.be.at.most(1);",
+                  "  }",
+                  "  if (b.data.skills.length > 0) {",
+                  "    pm.environment.set('transferableSkillId', b.data.skills[0].skillId);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/transferable-skills/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "transferable-skills", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /ai/transferable-skills (all)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('participant transferable skills are listed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.skills).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/transferable-skills",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "transferable-skills"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /ai/career-recommendations (deterministic, no provider)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('career recommendations are computed by the backend', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.recommendations.length).to.be.at.least(1);",
+                  "  const r = b.data.recommendations[0];",
+                  "  pm.expect(r.rank).to.eql(1);",
+                  "  pm.expect(r.matchScore).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/career-recommendations",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "career-recommendations"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /careers/:careerId/skill-gaps",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('skill gaps for a catalogue career are deterministic', function () {",
+                  "  if (pm.response.code === 404) {",
+                  "    const er = pm.response.json();",
+                  "    pm.expect(er.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.career.id).to.be.a('string');",
+                  "  pm.expect(b.data.skills).to.be.an('array');",
+                  "  for (const g of b.data.skills) {",
+                  "    pm.expect(['HAS_SKILL','NEEDS_DEVELOPMENT']).to.include(g.status);",
+                  "    pm.expect(['HIGH','MEDIUM','LOW']).to.include(g.priority);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/careers/{{targetCareerId}}/skill-gaps",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "careers", "{{targetCareerId}}", "skill-gaps"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /ai/skill-gaps/:careerId (persist)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('skill gaps are computed and persisted', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.career.name).to.be.a('string');",
+                  "  pm.expect(b.data.skills).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/skill-gaps/{{targetCareerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "skill-gaps", "{{targetCareerId}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "08 - Roadmap",
+      "item": [
+        {
+          "name": "POST /roadmaps/generate (30/60/90-day)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('roadmap is generated/reused with the documented phases', function () {",
+                  "  const handled = function () {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.data.roadmap.id).to.be.a('string');",
+                  "    pm.expect(b.data.phases.DAY_30).to.be.an('array');",
+                  "    pm.expect(b.data.phases.DAY_60).to.be.an('array');",
+                  "    pm.expect(b.data.phases.DAY_90).to.be.an('array');",
+                  "    pm.expect(b.data.phases.DAY_30.length).to.be.at.least(3);",
+                  "    pm.environment.set('roadmapId', b.data.roadmap.id);",
+                  "    if (b.data.phases.DAY_30.length > 0) {",
+                  "      pm.environment.set('roadmapTaskId', b.data.phases.DAY_30[0].id);",
+                  "    }",
+                  "  };",
+                  "  if ([503, 422, 409].indexOf(pm.response.code) !== -1) {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.success).to.eql(false);",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  handled();",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"careerPathId\": \"{{targetCareerId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/roadmaps/generate",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "roadmaps", "generate"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /roadmaps/current (read-first)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('current roadmap is retrievable', function () {",
+                  "  if (pm.response.code === 404) {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.roadmap.id).to.be.a('string');",
+                  "  pm.environment.set('roadmapId', b.data.roadmap.id);",
+                  "  if (b.data.phases.DAY_30.length > 0) {",
+                  "    pm.environment.set('roadmapTaskId', b.data.phases.DAY_30[0].id);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/roadmaps/current",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "roadmaps", "current"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /ai/roadmap (alias)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('alias GET /ai/roadmap works identically', function () {",
+                  "  if (pm.response.code === 404) {",
+                  "    pm.expect(pm.response.json().error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().data.roadmap.id).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/roadmap",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "roadmap"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /ai/roadmap/:careerId (generate alias)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('alias POST /ai/roadmap/:careerId reuses or generates roadmap', function () {",
+                  "  if ([503, 422, 409].indexOf(pm.response.code) !== -1) {",
+                  "    pm.expect(pm.response.json().success).to.eql(false);",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.roadmap.id).to.be.a('string');",
+                  "  pm.expect(b.data.phases.DAY_30).to.be.an('array');",
+                  "  pm.expect(b.data.phases.DAY_60).to.be.an('array');",
+                  "  pm.expect(b.data.phases.DAY_90).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/roadmap/{{targetCareerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "roadmap", "{{targetCareerId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /roadmaps/tasks/:taskId (IN_PROGRESS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('task status updates with backend-recomputed progress', function () {",
+                  "  if (pm.response.code === 404) {",
+                  "    pm.expect(pm.response.json().error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.status).to.eql('IN_PROGRESS');",
+                  "  pm.expect(b.data.roadmapProgress).to.be.at.least(0);",
+                  "  pm.expect(b.data.roadmapProgress).to.be.at.most(100);",
+                  "  pm.expect(b.data.phaseProgress.DAY_30).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_PROGRESS\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/roadmaps/tasks/{{roadmapTaskId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "roadmaps", "tasks", "{{roadmapTaskId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /roadmaps/tasks/:taskId (COMPLETED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('completing a task increases recomputed progress', function () {",
+                  "  if (pm.response.code === 404) {",
+                  "    pm.expect(pm.response.json().error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.status).to.eql('COMPLETED');",
+                  "  pm.expect(b.data.completedAt).to.be.a('string');",
+                  "  pm.expect(b.data.roadmapProgress).to.be.at.least(0);",
+                  "  pm.environment.set('roadmapProgressPct', b.data.roadmapProgress);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/roadmaps/tasks/{{roadmapTaskId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "roadmaps", "tasks", "{{roadmapTaskId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /roadmaps/tasks/:taskId invalid status (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('invalid task status -> 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"BOGUS\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/roadmaps/tasks/{{roadmapTaskId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "roadmaps", "tasks", "{{roadmapTaskId}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "09 - Progress & Achievements",
+      "item": [
+        {
+          "name": "GET /progress",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('progress is derived and bounded', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.overallProgress).to.be.at.least(0);",
+                  "  pm.expect(b.data.overallProgress).to.be.at.most(100);",
+                  "  const l = b.data.readinessLabel;",
+                  "  pm.expect(['Opportunity Ready','Developing','Building Foundations','Early Stage']).to.include(l);",
+                  "  pm.expect(b.data.readinessScore).to.be.a('number');",
+                  "  pm.expect(b.data.roadmapProgress).to.be.at.least(0);",
+                  "  pm.expect(b.data.challengeProgress).to.be.at.least(0);",
+                  "  pm.expect(b.data).to.not.have.property('progress');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/progress",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "progress"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /progress/summary (with readiness breakdown)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('summary includes the full readiness breakdown', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.readinessBreakdown).to.be.an('object');",
+                  "  pm.expect(b.data.readinessBreakdown.experience).to.be.a('number');",
+                  "  pm.expect(b.data.readinessBreakdown.skills).to.be.a('number');",
+                  "  pm.expect(b.data.readinessBreakdown.aiReadiness).to.be.a('number');",
+                  "  pm.expect(b.data.readinessBreakdown.evidence).to.be.a('number');",
+                  "  pm.expect(b.data.careerReadiness).to.be.a('number');",
+                  "  pm.expect(b.data.currentCareerGoal).to.be.a('string').or.equals(null);",
+                  "  pm.environment.set('careerReadinessPct', b.data.careerReadiness);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/progress/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "progress", "summary"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /progress/next-action",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('next best action is deterministic', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  const types = ['COMPLETE_PROFILE','ADD_EXPERIENCE','COMPLETE_ASSESSMENT','DISCOVER_SKILLS','SELECT_CAREER','REVIEW_SKILL_GAPS','COMPLETE_ROADMAP_TASK','COMPLETE_CHALLENGE','CREATE_EVIDENCE','GENERATE_PASSPORT','JOURNEY_COMPLETE'];",
+                  "  pm.expect(types).to.include(b.data.type);",
+                  "  pm.expect(b.data.action).to.be.a('string');",
+                  "  pm.expect(b.data.reason).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/progress/next-action",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "progress", "next-action"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /achievements",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('achievements list returns the catalogue with earn state', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.achievements.length).to.be.at.least(4);",
+                  "  for (const a of b.data.achievements) {",
+                  "    pm.expect(a.name).to.be.a('string');",
+                  "    pm.expect(a.earned).to.be.a('boolean');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/achievements",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "achievements"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10 - Challenges & Evidence",
+      "item": [
+        {
+          "name": "GET /challenges/:id (reconciliation detail)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('challenge detail returns one challenge', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.challenge.title).to.eql('Financial Reconciliation Challenge');",
+                  "  pm.expect(b.data.challenge.skills.length).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/challenges/{{reconciliationChallengeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "challenges", "{{reconciliationChallengeId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Financial Reconciliation Challenge (correct answers)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('correct reconciliation answer scores deterministically', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.status).to.eql('PASSED');",
+                  "  pm.expect(b.data.score).to.eql(100);",
+                  "  pm.expect(b.data.feedback).to.be.a('string');",
+                  "  pm.expect(b.data.evidenceCreated).to.be.at.least(1);",
+                  "  pm.environment.set('challengeSubmissionId', b.data.submissionId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": {\n    \"totalCredits\": 250000,\n    \"totalDebits\": 245000,\n    \"difference\": 5000,\n    \"discrepancyFound\": true,\n    \"explanation\": \"The daily ledger credits exceed debits by 5,000, suggesting an unreconciled entry.\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/challenges/{{reconciliationChallengeId}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "challenges", "{{reconciliationChallengeId}}", "submit"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Customer Payment Resolution Challenge (complete steps)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('payment resolution answer covering all behaviours passes', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.status).to.eql('PASSED');",
+                  "  pm.expect(b.data.score).to.eql(100);",
+                  "  pm.expect(b.data.feedback).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": {\n    \"steps\": [\n      \"Verify the failed transaction in the payment gateway\",\n      \"Contact the customer to confirm what happened\",\n      \"Check the payment channel status and account records\",\n      \"Arrange a refund and reprocess the payment\",\n      \"Confirm the outcome and document the case\"\n    ],\n    \"explanation\": \"A complete customer-first payment resolution process covering verification, communication and follow-up.\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/challenges/{{paymentChallengeId}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "challenges", "{{paymentChallengeId}}", "submit"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit reconciliation with wrong values (fails, not all-or-nothing)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('wrong answer is scored deterministically (FAILED or partial)', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(['PENDING','PASSED','FAILED']).to.include(b.data.status);",
+                  "  pm.expect(b.data.score).to.be.at.least(0);",
+                  "  pm.expect(b.data.score).to.be.at.most(100);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": {\n    \"totalCredits\": 1,\n    \"totalDebits\": 1,\n    \"difference\": 0,\n    \"discrepancyFound\": false,\n    \"explanation\": \"x\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/challenges/{{reconciliationChallengeId}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "challenges", "{{reconciliationChallengeId}}", "submit"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit with invalid answer schema (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unexpected answer shape -> 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": 42\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/challenges/{{reconciliationChallengeId}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "challenges", "{{reconciliationChallengeId}}", "submit"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /evidence (after passing submissions)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('evidence exists and is never auto-verified', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.evidence.length).to.be.at.least(1);",
+                  "  for (const e of b.data.evidence) {",
+                  "    pm.expect(['PENDING','VERIFIED']).to.include(e.status);",
+                  "    pm.expect(e.challengeId).to.be.a('string');",
+                  "  }",
+                  "  pm.environment.set('evidenceId', b.data.evidence[0].id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/evidence",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "evidence"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /evidence/:id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('evidence detail is retrievable', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.evidence.id).to.eql(pm.environment.get('evidenceId'));",
+                  "  pm.expect(b.data.evidence.status).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/evidence/{{evidenceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "evidence", "{{evidenceId}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "11 - Career Passport",
+      "item": [
+        {
+          "name": "GET /passport before generation (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('passport is 404 until generated (keeps the journey step)', function () {",
+                  "  if (pm.response.code === 200) {",
+                  "    return;",
+                  "  }",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/passport",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "passport"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /passport/generate (private)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('private passport is generated with a slug', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.passport.slug).to.be.a('string');",
+                  "  pm.expect(b.data.passport.isPublic).to.eql(false);",
+                  "  pm.expect(b.data.passport.name).to.be.a('string');",
+                  "  pm.expect(b.data.passport.readiness).to.be.an('object');",
+                  "  pm.expect(b.data.passport.readiness.breakdown).to.be.an('object');",
+                  "  pm.environment.set('passportSlug', b.data.passport.slug);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isPublic\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/passport/generate",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "passport", "generate"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /passport/public/:slug while private (404 concealment)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('non-public passport yields the same 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/passport/public/{{passportSlug}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "passport", "public", "{{passportSlug}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /passport/generate (make public, same slug)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('passport can be made public; slug stays stable', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.passport.isPublic).to.eql(true);",
+                  "  pm.expect(b.data.passport.slug).to.eql(pm.environment.get('passportSlug'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isPublic\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/passport/generate",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "passport", "generate"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /passport (private view)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('private passport view is complete', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.passport.id).to.be.a('string');",
+                  "  pm.expect(b.data.passport.roadmapProgress).to.be.a('number');",
+                  "  pm.expect(b.data.passport.phaseProgress.DAY_30).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/passport",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "passport"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /passport/public/:slug (public allowlist)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('public passport exposes only allowlisted fields', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const p = pm.response.json().data.passport;",
+                  "  pm.expect(p.name).to.be.a('string');",
+                  "  pm.expect(p.readiness).to.be.a('number');",
+                  "  pm.expect(p.readinessLabel).to.be.a('string');",
+                  "  pm.expect(p.aiImpact).to.be.an('object');",
+                  "  pm.expect(p).to.not.have.property('email');",
+                  "  pm.expect(p).to.not.have.property('id');",
+                  "  pm.expect(p).to.not.have.property('userId');",
+                  "  pm.expect(p).to.not.have.property('passwordHash');",
+                  "  pm.expect(p).to.not.have.property('organizationId');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/passport/public/{{passportSlug}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "passport", "public", "{{passportSlug}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /passport/public/unknown-slug (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unknown public slug -> 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/passport/public/does-not-exist-123",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "passport", "public", "does-not-exist-123"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "12 - Organizations & Programs (incl. tenant isolation)",
+      "item": [
+        {
+          "name": "Re-authenticate (refreshes JWT before org flow)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('fresh login before org admin flow', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.environment.set('accessToken', b.data.accessToken);",
+                  "  pm.environment.set('userId', b.data.user.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /organizations (create, founder becomes ADMIN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('organization is created with creator as ADMIN', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.organization.role).to.eql('ADMIN');",
+                  "  pm.expect(b.data.organization.country).to.eql('Nigeria');",
+                  "  pm.environment.set('qaOrganizationId', b.data.organization.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"HerNext QA Org {{$timestamp}}\",\n  \"description\": \"Temporary organization created by the Postman QA collection.\",\n  \"country\": \"Nigeria\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/organizations",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "organizations"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /organizations/:organizationId (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('creator can read their organization', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.organization.id).to.eql(pm.environment.get('qaOrganizationId'));",
+                  "  pm.expect(b.data.organization.role).to.eql('ADMIN');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/organizations/{{qaOrganizationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "organizations", "{{qaOrganizationId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /organizations/:organizationId/programs (create)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('admin creates a program', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.program.organizationId).to.eql(pm.environment.get('qaOrganizationId'));",
+                  "  pm.expect(b.data.program.status).to.eql('ACTIVE');",
+                  "  pm.environment.set('qaProgramId', b.data.program.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"QA Career Accelerator {{$timestamp}}\",\n  \"description\": \"Temporary program created by the QA collection.\",\n  \"startDate\": \"2026-09-01\",\n  \"endDate\": \"2026-11-30\",\n  \"status\": \"ACTIVE\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/organizations/{{qaOrganizationId}}/programs",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "organizations", "{{qaOrganizationId}}", "programs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /organizations/:organizationId/programs (list)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('programs of the owned organization are listed', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.programs.length).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/organizations/{{qaOrganizationId}}/programs",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "organizations", "{{qaOrganizationId}}", "programs"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /programs/:programId/participants (enroll current user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('admin enrolls a participant', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.participant.userId).to.eql(pm.environment.get('userId'));",
+                  "  pm.expect(b.data.participant.joinedAt).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/participants",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "participants"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /programs/:programId/participants duplicate (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('duplicate enrollment -> 409 RESOURCE_ALREADY_EXISTS', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_ALREADY_EXISTS');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/participants",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "participants"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /programs/:programId/participants (monitoring summaries)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('participant summaries have deterministic statuses', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.participants.length).to.be.at.least(1);",
+                  "  for (const p of b.data.participants) {",
+                  "    pm.expect(['ON_TRACK','NEEDS_ATTENTION','AT_RISK']).to.include(p.status);",
+                  "    pm.expect(p.readinessScore).to.be.at.least(0);",
+                  "    pm.expect(p.readinessScore).to.be.at.most(100);",
+                  "    pm.expect(p.roadmapProgress).to.be.at.least(0);",
+                  "    pm.expect(p.roadmapProgress).to.be.at.most(100);",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/participants",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "participants"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /programs/:programId/participants/:participantId (detail)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('participant detail is complete', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.participant.id).to.eql(pm.environment.get('userId'));",
+                  "  pm.expect(b.data.participant.hasPassport).to.be.a('boolean');",
+                  "  pm.expect(b.data.participant.skillsDeveloped).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/participants/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "participants", "{{userId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /programs/:programId/analytics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('program analytics derive from source records', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.analytics.totalParticipants).to.be.a('number');",
+                  "  pm.expect(b.data.analytics.assessmentCompletion).to.be.at.least(0);",
+                  "  pm.expect(b.data.analytics.assessmentCompletion).to.be.at.most(100);",
+                  "  pm.expect(b.data.analytics.averageReadiness).to.be.at.least(0);",
+                  "  pm.expect(b.data.analytics.averageReadiness).to.be.at.most(100);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "analytics"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /programs/:programId/report",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('program report is deterministic', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.report.participants).to.be.a('number');",
+                  "  pm.expect(b.data.report.statusDistribution.ON_TRACK).to.be.a('number');",
+                  "  pm.expect(b.data.report.statusDistribution.NEEDS_ATTENTION).to.be.a('number');",
+                  "  pm.expect(b.data.report.statusDistribution.AT_RISK).to.be.a('number');",
+                  "  pm.expect(b.data.report.participationRate).to.be.at.least(0);",
+                  "  pm.expect(b.data.report.participationRate).to.be.at.most(100);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/report",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "report"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login as a non-member participant (needs db:seed:demo:org)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('non-member demo participant logs in', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.environment.set('participantBToken', b.data.accessToken);",
+                  "  pm.environment.set('participantBUserId', b.data.user.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{participantBEmail}}\",\n  \"password\": \"{{demoPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Non-member GET /organizations/:id (403 isolation)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a non-member cannot read another organization', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('ORGANIZATION_ACCESS_DENIED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{participantBToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/organizations/{{qaOrganizationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "organizations", "{{qaOrganizationId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Non-member GET /programs/:id/analytics (403 isolation)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a non-member cannot read another tenant analytics', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('PROGRAM_ACCESS_DENIED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{participantBToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "analytics"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Non-member enroll attempt (403 PROGRAM tenant access)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a non-member cannot enroll participants', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('PROGRAM_ACCESS_DENIED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{participantBToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{participantBUserId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/programs/{{qaProgramId}}/participants",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "programs", "{{qaProgramId}}", "participants"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "13 - Ownership, Isolation & Negative",
+      "item": [
+        {
+          "name": "Missing Authorization header (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('no token -> 401 AUTHENTICATION_REQUIRED', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('AUTHENTICATION_REQUIRED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "me"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Garbage Authorization token (401 INVALID_TOKEN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('malformed token -> 401 INVALID_TOKEN', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('INVALID_TOKEN');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer not-a-real-jwt-token" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "me"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unknown route (404 RESOURCE_NOT_FOUND)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unknown route -> 404 RESOURCE_NOT_FOUND', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.success).to.eql(false);",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/does-not-exist",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "does-not-exist"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cross-user experience read concealment (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('another participant cannot read my experiences -> 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{participantBToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/experiences/{{experienceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "experiences", "{{experienceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cross-user evidence read concealment (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('another participant cannot read my evidence -> 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{participantBToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/evidence/{{evidenceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "evidence", "{{evidenceId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cross-user roadmap task update (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('another participant cannot update my roadmap tasks -> 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('RESOURCE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{participantBToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/roadmaps/tasks/{{roadmapTaskId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "roadmaps", "tasks", "{{roadmapTaskId}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mass-assignment guard: extra userId in profile body is rejected (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('profile body cannot inject ownership', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentOccupation\": \"Hacker\",\n  \"industry\": \"X\",\n  \"yearsOfExperience\": 1,\n  \"employmentType\": \"EMPLOYED\",\n  \"userId\": \"00000000-0000-0000-0000-000000000099\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "profile"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "14 - AI Failure (provider intentionally disabled, opt-in)",
+      "description": "Run this folder ONLY with a backend started WITHOUT AI_API_KEY/AI_MODEL so the provider is UnconfiguredProvider. It verifies the documented safe failure (503 AI_SERVICE_ERROR) and that the rest of the app still works.",
+      "item": [
+        {
+          "name": "POST /ai/career-impact/:experienceId?regenerate=true (503)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('with provider disabled, assessment fails safe with 503', function () {",
+                  "  pm.response.to.have.status(503);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('AI_SERVICE_ERROR');",
+                  "  pm.expect(b.error.message).to.not.include('key');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/career-impact/{{experienceId}}?regenerate=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "career-impact", "{{experienceId}}"],
+              "query": [{ "key": "regenerate", "value": "true" }]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /ai/transferable-skills/:experienceId?regenerate=true (503)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('with provider disabled, skills extraction fails safe with 503', function () {",
+                  "  pm.response.to.have.status(503);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.error.code).to.eql('AI_SERVICE_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/transferable-skills/{{experienceId}}?regenerate=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "transferable-skills", "{{experienceId}}"],
+              "query": [{ "key": "regenerate", "value": "true" }]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /careers/recommendations still works without provider (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('deterministic endpoints do not depend on the AI provider', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json();",
+                  "  pm.expect(b.data.recommendations.length).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/careers/recommendations",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "careers", "recommendations"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "15 - Rate Limiting (opt-in, use LAST)",
+      "description": "Opt-in probes that intentionally trip rate limits. Run the whole collection first, then run only this folder. WARNING: GET /ai/roadmap will be throttle-limited for ~60s for the caller IP, and the register probe burns 21 register permits for ~15min. These are destructive to parallel runs - run last and alone.",
+      "item": [
+        {
+          "name": "Brute-force login sweep -> 429 RATE_LIMIT_EXCEEDED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const url = pm.variables.replaceIn('{{baseUrl}}{{apiPrefix}}/auth/login');",
+                  "const opts = {",
+                  "  method: 'POST',",
+                  "  url: url,",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: pm.environment.get('loginEmail'), password: 'wrong-password' }), options: { raw: { language: 'json' } } },",
+                  "  header: [{ key: 'Content-Type', value: 'application/json' }]",
+                  "};",
+                  "let responded = 0; let rateLimited = false;",
+                  "for (let i = 0; i < 11; i++) {",
+                  "  pm.sendRequest(opts, function (err, res) {",
+                  "    responded += 1;",
+                  "    if (res && res.code === 429) { rateLimited = true; }",
+                  "    if (responded === 11) {",
+                  "      pm.test('login rate limit (max 10) is enforced', function () {",
+                  "        pm.expect(rateLimited).to.eql(true);",
+                  "      });",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{loginEmail}}\",\"password\":\"probe\"}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "AI read-route sweep -> 429 RATE_LIMIT_EXCEEDED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const url = pm.variables.replaceIn('{{baseUrl}}{{apiPrefix}}/ai/roadmap');",
+                  "const opts = {",
+                  "  method: 'GET',",
+                  "  url: url,",
+                  "  header: [{ key: 'Authorization', value: 'Bearer ' + pm.environment.get('accessToken') }]",
+                  "};",
+                  "let responded = 0; let rateLimited = false;",
+                  "for (let i = 0; i < 21; i++) {",
+                  "  pm.sendRequest(opts, function (err, res) {",
+                  "    responded += 1;",
+                  "    if (res && res.code === 429) { rateLimited = true; }",
+                  "    if (responded === 21) {",
+                  "      pm.test('AI rate limit (max 20/min) is enforced', function () {",
+                  "        pm.expect(rateLimited).to.eql(true);",
+                  "      });",
+                  "    }",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}{{apiPrefix}}/ai/roadmap",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{apiPrefix}}", "ai", "roadmap"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
