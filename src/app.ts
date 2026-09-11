@@ -34,9 +34,7 @@ import { registerOrganizationModule } from './modules/organizations/organization
 import { ProgramService } from './modules/programs/program.service.js';
 import { ProgramMonitoringService } from './modules/programs/program-monitoring.service.js';
 import { registerProgramModule } from './modules/programs/program.routes.js';
-import { GeminiProvider } from './modules/ai/providers/gemini.provider.js';
-import { OpenAiCompatibleProvider } from './modules/ai/providers/openai-compatible.provider.js';
-import { UnconfiguredProvider } from './modules/ai/providers/llm.provider.js';
+import { buildLlmProvider } from './modules/ai/providers/factory.js';
 import type { LLMProvider } from './modules/ai/providers/llm.provider.js';
 import { buildEmailProvider } from './modules/auth/email/index.js';
 
@@ -81,7 +79,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   // Provider selection is configuration-driven (docs/AI_SPEC.md §16). All
   // providers implement the same LLMProvider interface, so the AI service
   // never depends on a specific vendor. Unless explicitly overridden via
-  // AI_PROVIDER, Google Gemini (Google AI Studio) is used.
+  // AI_PROVIDER, Groq (OpenAI-compatible) is used.
   const provider: LLMProvider = buildLlmProvider({
     provider: config.aiProvider,
     apiKey: config.aiApiKey,
@@ -157,28 +155,4 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   return app;
-}
-
-/**
- * Selects a concrete LLM provider implementation from configuration. If no API
- * key or model is configured we return UnconfiguredProvider, which fails safely
- * instead of performing a real (or mocked) call - so the backend never silently
- * falls back to a fake provider in production.
- */
-function buildLlmProvider(input: {
-  provider: string;
-  apiKey: string | undefined;
-  model: string | undefined;
-}): LLMProvider {
-  if (!input.apiKey || !input.model) {
-    return new UnconfiguredProvider();
-  }
-  switch (input.provider.toLowerCase()) {
-    case 'openai':
-    case 'openai-compatible':
-      return new OpenAiCompatibleProvider({ apiKey: input.apiKey, model: input.model });
-    case 'gemini':
-    default:
-      return new GeminiProvider({ apiKey: input.apiKey, model: input.model });
-  }
 }

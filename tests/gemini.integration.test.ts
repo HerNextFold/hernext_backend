@@ -29,7 +29,7 @@ import { readLatestOtp } from './helpers/auth.js';
 const runGemini = process.env.RUN_GEMINI === '1';
 const apiKey = process.env.AI_API_KEY ?? '';
 const model = process.env.AI_MODEL ?? '';
-const providerMatches = (process.env.AI_PROVIDER ?? 'gemini').toLowerCase() === 'gemini';
+const providerMatches = (process.env.AI_PROVIDER ?? 'groq').toLowerCase() === 'gemini';
 const enabled = runGemini && providerMatches && apiKey.length > 0 && model.length > 0;
 
 const PASSWORD = 'SecurePassword123!';

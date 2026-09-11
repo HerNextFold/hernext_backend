@@ -1463,7 +1463,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('career impact assessment returns a structured, bounded result', function () {",
-                  "  // AI provider must be configured (AI_API_KEY). Without a key the API",
+                  "  // AI provider must be configured (default: GROQ_API_KEY). Without a key the API",
                   "  // intentionally returns 503 AI_SERVICE_ERROR (documented safe failure).",
                   "  if (pm.response.code === 503) {",
                   "    const er = pm.response.json();",
@@ -3396,7 +3396,7 @@
     },
     {
       "name": "14 - AI Failure (provider intentionally disabled, opt-in)",
-      "description": "Run this folder ONLY with a backend started WITHOUT AI_API_KEY/AI_MODEL so the provider is UnconfiguredProvider. It verifies the documented safe failure (503 AI_SERVICE_ERROR) and that the rest of the app still works.",
+      "description": "Run this folder ONLY with a backend started WITHOUT the AI provider key/AI_MODEL (default GROQ_API_KEY) so the provider is UnconfiguredProvider. It verifies the documented safe failure (503 AI_SERVICE_ERROR) and that the rest of the app still works.",
       "item": [
         {
           "name": "POST /ai/career-impact/:experienceId?regenerate=true (503)",

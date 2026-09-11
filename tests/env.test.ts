@@ -37,6 +37,49 @@ describe('loadEnv', () => {
     expect(config.jwtExpiresIn).toBe('15m');
     expect(config.jwtRefreshExpiresIn).toBe('7d');
     expect(config.emailProvider).toBe('test');
+    expect(config.aiProvider).toBe('groq');
+  });
+
+  it('uses GROQ_API_KEY for the default Groq provider', () => {
+    const base = {
+      DATABASE_URL: 'postgres://user:pass@host:5432/db',
+      JWT_SECRET: 'secret',
+      JWT_REFRESH_SECRET: 'refresh-secret',
+    };
+
+    const config = loadEnv({ ...base, GROQ_API_KEY: 'gsk-groq', OPENAI_API_KEY: 'sk-other' });
+    expect(config.aiProvider).toBe('groq');
+    expect(config.aiApiKey).toBe('gsk-groq');
+  });
+
+  it('does not fall back to OPENAI_API_KEY when the Groq provider is selected but GROQ_API_KEY is unset', () => {
+    const base = {
+      DATABASE_URL: 'postgres://user:pass@host:5432/db',
+      JWT_SECRET: 'secret',
+      JWT_REFRESH_SECRET: 'refresh-secret',
+    };
+
+    const config = loadEnv({ ...base, OPENAI_API_KEY: 'sk-other' });
+    expect(config.aiProvider).toBe('groq');
+    expect(config.aiApiKey).toBeUndefined();
+  });
+
+  it('prefers OPENAI_API_KEY and falls back to AI_API_KEY for the OpenAI provider', () => {
+    const base = {
+      DATABASE_URL: 'postgres://user:pass@host:5432/db',
+      JWT_SECRET: 'secret',
+      JWT_REFRESH_SECRET: 'refresh-secret',
+      AI_PROVIDER: 'openai',
+    };
+
+    const primary = loadEnv({ ...base, OPENAI_API_KEY: 'sk-openai', AI_API_KEY: 'legacy-key' });
+    expect(primary.aiApiKey).toBe('sk-openai');
+
+    const fallback = loadEnv({ ...base, AI_API_KEY: 'legacy-key' });
+    expect(fallback.aiApiKey).toBe('legacy-key');
+
+    const none = loadEnv(base);
+    expect(none.aiApiKey).toBeUndefined();
   });
 
   it('forbids the in-memory email provider in production', () => {

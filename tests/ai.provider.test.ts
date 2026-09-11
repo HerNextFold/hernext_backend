@@ -48,6 +48,21 @@ describe('OpenAiCompatibleProvider', () => {
       { role: 'user', content: 'usr' },
     ]);
     expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.max_completion_tokens).toBe(2000);
+  });
+
+  it('sends the API key in the Authorization header, never in the URL or error text', async () => {
+    fetchMock.mockResolvedValue(new Response('payload', { status: 401 }));
+    await expect(provider().completeStructured({ system: 'x', user: 'y' })).rejects.toMatchObject({
+      kind: 'unavailable',
+      retryable: false,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).not.toContain('test-key');
+    expect(String(url)).not.toMatch(/[Bb]earer/);
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer test-key');
+    expect(headers.Authorization).not.toContain('\n');
   });
 
   it('classifies an empty content as invalid (non-retryable)', async () => {

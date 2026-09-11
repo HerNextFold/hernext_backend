@@ -39,11 +39,11 @@ Services:
 
 AI-origination endpoints (`POST /ai/career-impact/:id`,
 `POST /ai/transferable-skills/:id`) call the configured provider
-(`AI_API_KEY`/`AI_MODEL` in `.env`, see `docs/AI_SPEC.md`). Without a key they
-intentionally return `503 AI_SERVICE_ERROR` (documented safe failure — the
-collection's success-path tests tolerate 503 for these two calls). Career
-recommendations, skill gaps, roadmap reuse, progress, and passport are
-deterministic and never call the provider.
+(default Groq: `GROQ_API_KEY`/`AI_MODEL` in `.env`, see `docs/AI_SPEC.md`).
+Without a key they intentionally return `503 AI_SERVICE_ERROR` (documented safe
+failure — the collection's success-path tests tolerate 503 for these two
+calls). Career recommendations, skill gaps, roadmap reuse, progress, and
+passport are deterministic and never call the provider.
 
 ### Email / OTP
 
@@ -144,8 +144,9 @@ account. Set `testEmailDomain` to a readable mailbox, then run:
 ### Opt-in folders
 
 - `14 – AI Failure (provider intentionally disabled)` — start the backend
-  **without** `AI_API_KEY`/`AI_MODEL`, then run this folder to verify the
-  documented `503 AI_SERVICE_ERROR` and that the rest of the app still works.
+  **without** the AI provider key/`AI_MODEL` (default `GROQ_API_KEY`), then run
+  this folder to verify the documented `503 AI_SERVICE_ERROR` and that the rest
+  of the app still works.
 - `15 – Rate Limiting (opt-in, last)` — probe 429s. Run it as the final folder:
   it exhausts the login (10/10 min) and AI (20/min) buckets and intentionally
   treads on the global 100/min limit. For a clean re-run, restart the server or

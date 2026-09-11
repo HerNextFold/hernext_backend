@@ -1200,7 +1200,91 @@ Career Passport
 
 # 43. Live Verification Status (Phase 3)
 
+## Default provider: Groq
+
+The production/default AI provider is **Groq** (OpenAI-compatible Chat
+Completions API, structured JSON via `response_format` = `json_object`).
+
 Provider configuration in the backend `.env`:
+
+```text
+AI_PROVIDER=groq
+GROQ_API_KEY=<from Groq Console, environment only>
+AI_MODEL=openai/gpt-oss-120b
+```
+
+The key is read from the environment at runtime, is never committed or logged,
+and is never sent to the frontend (docs/SECURITY_SPEC.md §41).
+
+Model selection rationale (`openai/gpt-oss-120b`):
+
+* A production (non-preview) open-weight model served on Groq's low-latency
+  inference stack with a 131k token context window.
+* Strong instruction following for the moderate-complexity career analysis used
+  here (task classification, skill inference, 30/60/90 roadmap generation).
+* JSON Object Mode is supported by every Groq model, so the same
+  `response_format` works regardless of the model chosen.
+* Free tier is available for development (`gsk_*` key from the Groq Console),
+  appropriate for the MVP's rate-limited AI endpoints (`POST /ai/*`, 20
+  req/min per participant). Free-tier limits must not be treated as production
+  capacity guarantees; moving to paid Groq billing or another provider is a
+  configuration change, never a code change.
+* NOT chosen for being the newest model; the chosen model is configurable via
+  `AI_MODEL` and is never hardcoded in any service.
+
+### Strict structured outputs note
+
+Groq's GPT-OSS models additionally support strict `json_schema` structured
+outputs. HerNext deliberately uses JSON Object Mode instead:
+
+* It needs no per-request JSON Schema construction and works with *any*
+  OpenAI-compatible vendor (including OpenRouter), keeping the provider
+  abstraction generic.
+* The backend's Zod output schemas are the authoritative structured-output
+  guard. Malformed/non-conforming AI output is rejected with
+  `422 AI_OUTPUT_VALIDATION_FAILED` (docs/AI_SPEC.md §19, §28), so a looser
+  provider-level format costs nothing in safety.
+
+### Deprecated `max_tokens`
+
+The provider sends `max_completion_tokens` (see
+`src/modules/ai/providers/openai-compatible.provider.ts`). `max_tokens` is
+deprecated on modern OpenAI-compatible APIs and reasoning-capable models can
+silently truncate (returning empty content) when the legacy field is used —
+the response budget is correctly capped either way.
+
+### Provider selection
+
+`AI_PROVIDER` selects the implementation (docs/DEVELOPMENT_PLAN.md §43). The
+key is resolved per provider:
+
+```text
+AI_PROVIDER=groq    → GROQ_API_KEY
+AI_PROVIDER=openai  → OPENAI_API_KEY  (falls back to AI_API_KEY)
+AI_PROVIDER=gemini  → AI_API_KEY
+```
+
+If no key or model is configured at all, the backend registers
+`UnconfiguredProvider`, and every AI-origination endpoint fails safely with
+`503 AI_SERVICE_ERROR` (never a fake provider in production).
+
+### Live verification status
+
+* **Groq (default):** the provider wiring is covered by deterministic mocked
+  tests (`tests/groq.provider.test.ts`, `tests/ai.provider.test.ts`); an
+  opt-in manual smoke test against the live API is described below. A real
+  Groq key is required and is read from `.env` — the key is never printed or
+  pasted into Postman.
+* **OpenAI (optional):** a real smoke test was attempted from this machine. The
+  key was authentic (the provider listed 124 models including `gpt-4o-mini`),
+  but the account returned `429` (`credit_balance_exhausted`) — deployment is
+  blocked by billing, not by code. The safe-failure path was verified live:
+  the API returned `503 AI_SERVICE_ERROR` instead of leaking provider detail.
+* **Gemini:** see the Gemini section below.
+
+## Gemini remains an optional provider
+
+Google Gemini (Google AI Studio) remains supported when explicitly configured:
 
 ```text
 AI_PROVIDER=gemini
@@ -1208,25 +1292,11 @@ AI_MODEL=gemini-3.6-flash
 AI_API_KEY=<from Google AI Studio, environment only>
 ```
 
-Live verification of the real Gemini API remains **blocked by an environment
-issue**, not by the HerNext implementation:
+It is intentionally left installed behind the `LLMProvider` abstraction with its
+own deterministic tests and its own opt-in live integration test; only the
+default and the "Gemini is the production provider" documentation have changed.
 
-```text
-Real Gemini API connectivity could not be verified from this machine because
-generativelanguage.googleapis.com is unreachable.
-```
-
-The Gemini REST endpoint `https://generativelanguage.googleapis.com` resolves to
-the `172.217.x.x` IP range, which is blocked by the machine/network firewall
-(outbound HTTPS times out / connection refused). `www.google.com` and
-`ai.google.dev` are reachable, confirming the block is IP-range specific.
-
-Nothing was changed in the application architecture or provider code to work
-around the network issue. The provider implementation is covered by deterministic
-mocked tests, and persistence is covered by Neon integration tests with a mocked
-provider.
-
-To complete live verification once network access to
+To run the Gemini opt-in live test once network access to
 `generativelanguage.googleapis.com` is available:
 
 ```text
@@ -1241,5 +1311,21 @@ HerNext API → AiService → GeminiProvider → Gemini API → structured JSON
   → Zod validation → backend scoring/business logic → Neon PostgreSQL
 ```
 
-Live verification is complete only when at least one real Gemini request
-successfully completes end-to-end.
+## Manual AI smoke test (default provider)
+
+With a real provider key configured in `.env` (default: `GROQ_API_KEY` with
+`AI_PROVIDER=groq`), verify a single real request end-to-end with a real
+(non-mock) test participant:
+
+```text
+1. POST /api/v1/auth/register  → OTP → POST /api/v1/auth/verify-email-otp
+2. POST /api/v1/experiences    (a short real work description)
+3. POST /api/v1/ai/career-impact/:experienceId
+```
+
+Expected: HTTP 200; `data.score` in [0,100]; `data.level` in
+`LOW/MODERATE/HIGH`; a dedicated `career_analyses` row persisted; the stored
+score matches the deterministic backend formula recomputed from the AI's task
+arrays (docs/SCORING_LOGIC.md) — NOT a value returned by the provider. The key
+must never be printed or pasted into Postman; the AI provider is only ever
+called by the backend.

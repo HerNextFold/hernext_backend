@@ -16,17 +16,26 @@ export class OpenAiCompatibleProvider implements LLMProvider {
   private readonly model: string;
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly maxTokens: number;
 
   constructor(input: {
     apiKey: string;
     model: string;
     baseUrl?: string;
     timeoutMs?: number;
+    maxTokens?: number;
   }) {
     this.apiKey = input.apiKey;
     this.model = input.model;
     this.baseUrl = input.baseUrl ?? 'https://api.openai.com/v1';
     this.timeoutMs = input.timeoutMs ?? 30_000;
+    // Bounds the generated response (docs/AI_SPEC.md §23). The Zod output
+    // schemas remain the final safety boundary; this only caps token spend so
+    // a runaway completion cannot inflate cost or latency. The field is named
+    // max_completion_tokens because max_tokens is deprecated on modern
+    // OpenAI-compatible APIs (Groq's GPT-OSS models and OpenAI both honour the
+    // newer name).
+    this.maxTokens = input.maxTokens ?? 2000;
   }
 
   async completeStructured(input: { system: string; user: string }): Promise<unknown> {
@@ -42,6 +51,7 @@ export class OpenAiCompatibleProvider implements LLMProvider {
         body: JSON.stringify({
           model: this.model,
           temperature: 0,
+          max_completion_tokens: this.maxTokens,
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: input.system },

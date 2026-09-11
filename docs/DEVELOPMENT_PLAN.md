@@ -1194,7 +1194,7 @@ DATABASE_URL
 JWT_SECRET
 FRONTEND_URL
 AI_PROVIDER
-AI_API_KEY
+GROQ_API_KEY
 ```
 
 Optional:
@@ -1202,13 +1202,18 @@ Optional:
 ```text
 JWT_EXPIRES_IN
 AI_MODEL
+OPENAI_API_KEY
+AI_API_KEY
 LOG_LEVEL
 ```
 
-`AI_PROVIDER` selects the LLM provider implementation (default `gemini` for
-Google Gemini via Google AI Studio; `openai-compatible` is also supported). The
-AI provider keys are read from environment variables only and are never
-committed, logged, or returned to the frontend.
+`AI_PROVIDER` selects the LLM provider implementation (default `groq` for the
+OpenAI-compatible Groq Chat Completions API; `openai` and `gemini` are also
+supported). The AI provider key is resolved per provider:
+`GROQ_API_KEY` for `groq`, `OPENAI_API_KEY` (with `AI_API_KEY` as a legacy
+alias) for the OpenAI-compatible path, and `AI_API_KEY` for `gemini`. The AI
+provider keys are read from environment variables only and are never committed,
+logged, or returned to the frontend.
 
 All environment variables must be validated at startup.
 

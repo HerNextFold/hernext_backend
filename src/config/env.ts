@@ -30,7 +30,9 @@ const appEnvSchema = z.object({
   JWT_EXPIRES_IN: z.string().min(1).default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().min(1).default('7d'),
   FRONTEND_URL: z.string().url('FRONTEND_URL must be a valid URL').default('http://localhost:5173'),
-  AI_PROVIDER: z.string().min(1).default('gemini'),
+  AI_PROVIDER: z.string().min(1).default('groq'),
+  GROQ_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
   AI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
   EMAIL_PROVIDER: z.enum(['test', 'brevo']).default('test'),
@@ -77,6 +79,17 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
 
   const env = result.data;
 
+  const aiProvider = env.AI_PROVIDER;
+  // The key is resolved per provider so each vendor's credential lives in its
+  // own variable and is never sent to another provider. GROQ_API_KEY is used
+  // for the default Groq provider; OPENAI_API_KEY is the primary key for the
+  // OpenAI-compatible path, with AI_API_KEY kept as a legacy alias (e.g.
+  // existing Gemini deployments) when OPENAI_API_KEY is unset.
+  const aiApiKey =
+    aiProvider.toLowerCase() === 'groq'
+      ? env.GROQ_API_KEY
+      : env.OPENAI_API_KEY ?? env.AI_API_KEY;
+
   if (env.NODE_ENV === 'production' && env.EMAIL_PROVIDER !== 'brevo') {
     throw new Error(
       'Environment validation failed:\n  - EMAIL_PROVIDER must be "brevo" in production (the "test" provider must never be used as a production mail path)',
@@ -108,7 +121,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     jwtRefreshExpiresIn: env.JWT_REFRESH_EXPIRES_IN,
     frontendUrl: env.FRONTEND_URL,
     aiProvider: env.AI_PROVIDER,
-    aiApiKey: env.AI_API_KEY,
+    aiApiKey,
     aiModel: env.AI_MODEL,
     emailProvider: env.EMAIL_PROVIDER,
     brevoApiKey: env.BREVO_API_KEY,

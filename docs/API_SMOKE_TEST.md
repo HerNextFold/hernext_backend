@@ -29,7 +29,8 @@ Notes:
 
 - All API paths below are relative to the base `/api/v1` (e.g. `POST /api/v1/auth/register`).
 - Windows PowerShell aliases `curl` to `Invoke-WebRequest`; use `curl.exe` or Postman.
-- AI endpoints require a configured `AI_PROVIDER`/`AI_API_KEY` (docs/AI_SPEC.md).
+- AI endpoints require a configured `AI_PROVIDER` with its provider key
+  (default Groq: `GROQ_API_KEY`, see `docs/AI_SPEC.md`).
   Without a key they intentionally return `503 AI_SERVICE_ERROR` — that is the
   documented safe behaviour, not a bug.
 - `db:check`: `npm run db:check` verifies the connection string/SSL quickly.
