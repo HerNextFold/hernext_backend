@@ -66,8 +66,39 @@ export async function queryText<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params: unknown[] = [],
 ): Promise<T[]> {
+  try {
+    return await runQuery(db, text, params);
+  } catch (error) {
+    // Neon's proxy can close a pooled connection while it sits idle in the
+    // pool. pg surfaces this as a transient connection error on the first
+    // query to reuse that client. Retry once for pool-backed queries only;
+    // transaction clients are never retried because a failed statement
+    // aborts the whole transaction.
+    if (isPool(db) && isTransientDbError(error)) {
+      return runQuery(db, text, params);
+    }
+    throw error;
+  }
+}
+
+async function runQuery<T extends QueryResultRow = QueryResultRow>(
+  db: Db,
+  text: string,
+  params: unknown[],
+): Promise<T[]> {
   const result = await db.query<T>({ text, values: params });
   return result.rows;
+}
+
+/** true when `db` is a Pool (has no `release`), false for a PoolClient. */
+function isPool(db: Db): boolean {
+  return (db as PoolClient).release === undefined;
+}
+
+const TRANSIENT_DB_ERROR = /Connection terminated unexpectedly|Connection refused|ECONNRESET|EPIPE|server closed the connection|terminating connection due to administrator command|idle client timed out|timeout exceeded when trying to connect/;
+
+function isTransientDbError(error: unknown): boolean {
+  return error instanceof Error && TRANSIENT_DB_ERROR.test(error.message ?? '');
 }
 
 export async function queryRow<T extends QueryResultRow = QueryResultRow>(

@@ -61,7 +61,11 @@ export class AchievementService {
   async evaluateAndAward(userId: string): Promise<string[]> {
     return withTransaction(async (client) => {
       const codes = await listAchievementCodes(client);
-      const metrics = await loadJourneyMetrics(client, userId);
+      // Read journey metrics from the pool, not the transaction client.
+      // loadJourneyMetrics fires ~11 queries concurrently (progress.model.ts),
+      // which would overlap on a single transaction client and serialise badly.
+      // Achievement awarding itself stays transactional and idempotent.
+      const metrics = await loadJourneyMetrics(getPool(), userId);
       const earnedCodes = evaluateAchievementCodes({
         codes,
         state: buildEvaluationState(metrics),
