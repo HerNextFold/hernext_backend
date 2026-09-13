@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+.git
+.env
+.env.*
+!.env.example
+*.log
+.qa-tmp
+.smoke-tmp
+postman
+docs
+tests
+db
+Dockerfile
+.dockerignore
+.gitignore
