@@ -12,7 +12,7 @@ app.addHook('onClose', async () => {
   await closeDb();
 });
 
-const host = config.nodeEnv === 'production' ? '0.0.0.0' : '127.0.0.1';
+const host = config.host;
 
 async function start(): Promise<void> {
   try {

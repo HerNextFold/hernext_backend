@@ -6,6 +6,7 @@ coverage
 .env.*
 !.env.example
 *.log
+*.pid
 .qa-tmp
 .smoke-tmp
 postman

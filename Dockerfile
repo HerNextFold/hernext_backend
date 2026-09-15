@@ -32,6 +32,10 @@ RUN npm prune --omit=dev
 FROM node:22-bookworm-slim AS runner
 ENV NODE_ENV=production
 ENV PORT=5000
+# Bind on all interfaces so container platforms (e.g. Render) can reach the
+# service. Do not rely on NODE_ENV alone - platforms do not always forward it
+# to Docker runtimes.
+ENV HOST=0.0.0.0
 WORKDIR /app
 
 RUN apt-get update \

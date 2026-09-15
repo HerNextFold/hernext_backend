@@ -10,6 +10,7 @@ const booleanFromEnv = (dflt: boolean): z.ZodType<boolean> =>
 const appEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(5000),
+  HOST: z.string().optional(),
   DATABASE_URL: z
     .string()
     .min(1, 'DATABASE_URL is required')
@@ -45,6 +46,7 @@ const appEnvSchema = z.object({
 export type AppConfig = {
   nodeEnv: 'development' | 'test' | 'production';
   port: number;
+  host: string;
   databaseUrl: string;
   dbSsl: boolean;
   dbPoolMax: number;
@@ -112,6 +114,12 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   return {
     nodeEnv: env.NODE_ENV,
     port: env.PORT,
+    host:
+      env.HOST !== undefined && env.HOST.trim().length > 0
+        ? env.HOST.trim()
+        : env.NODE_ENV === 'production'
+          ? '0.0.0.0'
+          : '127.0.0.1',
     databaseUrl: env.DATABASE_URL,
     dbSsl: env.DB_SSL,
     dbPoolMax: env.DB_POOL_MAX,
