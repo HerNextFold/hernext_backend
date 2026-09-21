@@ -30,7 +30,23 @@ const appEnvSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
   JWT_EXPIRES_IN: z.string().min(1).default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().min(1).default('7d'),
-  FRONTEND_URL: z.string().url('FRONTEND_URL must be a valid URL').default('http://localhost:5173'),
+  FRONTEND_URL: z
+    .string()
+    .default('http://localhost:5173,http://localhost:5174')
+    .refine(
+      (value) =>
+        value
+          .split(',')
+          .every((origin) => {
+            try {
+              new URL(origin.trim());
+              return true;
+            } catch {
+              return false;
+            }
+          }),
+      { message: 'FRONTEND_URL must be a comma-separated list of valid URLs' },
+    ),
   AI_PROVIDER: z.string().min(1).default('groq'),
   GROQ_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
@@ -54,7 +70,7 @@ export type AppConfig = {
   jwtRefreshSecret: string;
   jwtExpiresIn: string;
   jwtRefreshExpiresIn: string;
-  frontendUrl: string;
+  frontendUrl: string[];
   aiProvider: string;
   aiApiKey: string | undefined;
   aiModel: string | undefined;
@@ -127,7 +143,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     jwtRefreshSecret: env.JWT_REFRESH_SECRET,
     jwtExpiresIn: env.JWT_EXPIRES_IN,
     jwtRefreshExpiresIn: env.JWT_REFRESH_EXPIRES_IN,
-    frontendUrl: env.FRONTEND_URL,
+    frontendUrl: env.FRONTEND_URL.split(',').map((origin) => origin.trim()).filter((origin) => origin.length > 0),
     aiProvider: env.AI_PROVIDER,
     aiApiKey,
     aiModel: env.AI_MODEL,
