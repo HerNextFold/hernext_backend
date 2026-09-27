@@ -11,6 +11,7 @@ export function registerCors(app: FastifyInstance, frontendUrls: string[]): void
   const allowedOrigins = new Set(frontendUrls.map((origin) => origin.replace(/\/+$/, '')));
   void app.register(cors, {
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
     origin: (origin, callback) => {
       if (origin === undefined) {
         callback(null, true);
