@@ -89,6 +89,7 @@ Represents every authenticated account.
 | lastName     | String   |      Yes | Last name                         |
 | role         | UserRole |      Yes | Participant or organization admin |
 | country      | String   |      Yes | User's country                    |
+| state        | String   |       No | State or province. Null when unset or when the country has no listed subdivision |
 | isActive     | Boolean  |      Yes | Account status                    |
 | emailVerified| Boolean  |      Yes | False until `/auth/verify-email-otp` succeeds |
 | verifiedAt   | DateTime |       No | When the email was verified       |

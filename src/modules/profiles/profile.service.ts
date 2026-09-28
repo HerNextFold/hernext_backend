@@ -7,7 +7,7 @@ import {
   type CareerProfileRow,
 } from '../../models/career-profile.model.js';
 import { assertCareerExists, findCareerById, findSkillsByIds } from '../../models/catalogue.model.js';
-import { findParticipantProfileByUserId } from '../../models/user.model.js';
+import { findParticipantProfileByUserId, findUserById, updateUserLocation } from '../../models/user.model.js';
 import { listUserSkillsWithNames, upsertUserSkill } from '../../models/user-skill.model.js';
 import type { UpsertProfileBody } from './profile.schemas.js';
 import { toProfileView, type CareerProfileView } from './profile.types.js';
@@ -30,12 +30,25 @@ export class ProfileService {
    * Creates or updates the participant's career profile in one transaction.
    * The optional `skillIds` are validated against the approved skill catalogue
    * and stored as SELF_REPORTED user skills (docs/PRODUCT_SPEC.md §8).
+   * Optional `country`/`state` are written to the authenticated user's own
+   * "users" row in the same transaction. Location is only touched when the
+   * caller actually sends it, so a client that omits it keeps the stored value.
    */
   async saveProfile(userId: string, input: UpsertProfileBody): Promise<CareerProfileView> {
     const profile = await withTransaction(async (client) => {
       const participantProfile = await findParticipantProfileByUserId(client, userId);
       if (participantProfile === null) {
         throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Participant profile not found', 404);
+      }
+
+      if (input.country !== undefined || input.state !== undefined) {
+        const updated = await updateUserLocation(client, userId, {
+          ...(input.country === undefined ? {} : { country: input.country }),
+          ...(input.state === undefined ? {} : { state: input.state }),
+        });
+        if (updated === null) {
+          throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Account not found', 404);
+        }
       }
 
       if (input.targetCareerId !== null && input.targetCareerId !== undefined) {
@@ -92,10 +105,14 @@ export class ProfileService {
   }
 
   private async buildView(userId: string, profile: CareerProfileRow): Promise<CareerProfileView> {
-    const [targetCareer, skills] = await Promise.all([
+    const [targetCareer, skills, user] = await Promise.all([
       profile.targetCareerId === null ? null : findCareerById(undefined, profile.targetCareerId),
       listUserSkillsWithNames(undefined, userId),
+      findUserById(undefined, userId),
     ]);
-    return toProfileView(profile, targetCareer, skills);
+    if (user === null) {
+      throw new AppError(errorCodes.RESOURCE_NOT_FOUND, 'Account not found', 404);
+    }
+    return toProfileView(profile, targetCareer, skills, user);
   }
 }

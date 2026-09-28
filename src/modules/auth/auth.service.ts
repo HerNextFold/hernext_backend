@@ -79,6 +79,7 @@ function toPublicUser(user: UserRow): PublicUser {
     lastName: user.lastName,
     email: user.email,
     country: user.country,
+    state: user.state,
     role: user.role,
     emailVerified: user.emailVerified,
   };
@@ -110,6 +111,7 @@ export class AuthService {
         lastName: input.lastName,
         role: input.role,
         country: input.country,
+        state: input.state ?? null,
       });
       await insertParticipantProfile(client, created.id);
       return created.id;

@@ -6,6 +6,7 @@ export const registerSchema = z.object({
   email: z.string().trim().toLowerCase().email('A valid email is required').max(254),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
   country: z.string().trim().min(1, 'country is required').max(100),
+  state: z.string().trim().min(1).max(100).optional(),
   role: z
     .enum(['PARTICIPANT', 'ORGANIZATION_ADMIN', 'ORGANIZATION_MEMBER'])
     .optional()

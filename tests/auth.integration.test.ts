@@ -119,6 +119,40 @@ describe.runIf(runDbTests)('auth endpoints (integration)', () => {
     expect(readLatestOtp(app, email, 'EMAIL_VERIFICATION')).toMatch(/^\d{6}$/);
   });
 
+  it('persists an optional state supplied at registration', async () => {
+    const email = randomEmail();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: registerPayload(email, { state: 'Lagos' }),
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().data.user).toMatchObject({ country: 'Nigeria', state: 'Lagos' });
+
+    const verified = await verifyEmail(email);
+    expect(verified.statusCode).toBe(200);
+    expect(verified.body.data.user).toMatchObject({ country: 'Nigeria', state: 'Lagos' });
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { authorization: `Bearer ${verified.body.data.accessToken as string}` },
+    });
+    expect(me.statusCode).toBe(200);
+    expect(me.json().data).toMatchObject({ country: 'Nigeria', state: 'Lagos' });
+  });
+
+  it('rejects a blank state at registration', async () => {
+    const email = randomEmail();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: registerPayload(email, { state: '   ' }),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('VALIDATION_ERROR');
+  });
+
   it('verifies the email OTP and issues the first access token', async () => {
     const email = randomEmail();
     const { user, accessToken } = await registerAndVerify(email);
@@ -292,10 +326,12 @@ describe.runIf(runDbTests)('auth endpoints (integration)', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.success).toBe(true);
-    expect(body.data.email).toBe(email);
-    expect(body.data.emailVerified).toBe(true);
-    expect(body.data).not.toHaveProperty('passwordHash');
-  });
+      expect(body.data.email).toBe(email);
+      expect(body.data.emailVerified).toBe(true);
+      expect(body.data.country).toBe('Nigeria');
+      expect(body.data.state).toBeNull();
+      expect(body.data).not.toHaveProperty('passwordHash');
+    });
 
   it('rejects /auth/me without a token', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/auth/me' });

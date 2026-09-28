@@ -11,6 +11,8 @@ export const upsertProfileSchema = z
     careerInterests: z.array(z.string().trim().min(1).max(200)).max(20).nullable().optional(),
     targetCareerId: z.string().uuid('targetCareerId must be a valid UUID').nullable().optional(),
     skillIds: z.array(z.string().uuid('skillIds must be valid UUIDs')).max(50).optional(),
+    country: z.string().trim().min(1, 'country cannot be empty').max(100).optional(),
+    state: z.string().trim().min(1).max(100).nullable().optional(),
   })
   .strict();
 

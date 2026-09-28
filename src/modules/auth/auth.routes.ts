@@ -30,6 +30,12 @@ const registerBodySchema = {
     email: { type: 'string', format: 'email', maxLength: 254 },
     password: { type: 'string', minLength: 8, maxLength: 128, description: 'Plain-text password; always hashed before storage' },
     country: { type: 'string', minLength: 1, maxLength: 100 },
+    state: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 100,
+      description: 'Optional state or province. Omitted for countries without a listed subdivision.',
+    },
     role: {
       type: 'string',
       enum: [...USER_ROLES],
@@ -149,6 +155,7 @@ export function registerAuthModule(app: FastifyInstance, service: AuthService): 
                 email: 'aisha@example.com',
                 password: 'password123',
                 country: 'Nigeria',
+                state: 'Lagos',
                 role: 'PARTICIPANT',
               },
             ),

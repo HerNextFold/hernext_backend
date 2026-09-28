@@ -43,12 +43,19 @@ describe.runIf(runDbTests)('career profile API (integration)', () => {
     await closeDb();
   });
 
-  async function register(): Promise<{ token: string; userId: string }> {
+  async function register(state?: string): Promise<{ token: string; userId: string }> {
     const email = randomEmail();
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',
-      payload: { firstName: 'Prof', lastName: 'Tester', email, password: PASSWORD, country: 'Nigeria' },
+      payload: {
+        firstName: 'Prof',
+        lastName: 'Tester',
+        email,
+        password: PASSWORD,
+        country: 'Nigeria',
+        ...(state === undefined ? {} : { state }),
+      },
     });
     expect(response.statusCode).toBe(201);
     const code = readLatestOtp(app, email, 'EMAIL_VERIFICATION');
@@ -239,5 +246,143 @@ describe.runIf(runDbTests)('career profile API (integration)', () => {
     });
     expect(response.statusCode).toBe(400);
     expect(response.json().error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('persists the state chosen at registration and returns it on the profile', async () => {
+    const { token } = await register('Lagos');
+    const response = await call({
+      method: 'PUT',
+      url: '/api/v1/profile',
+      token,
+      payload: {
+        currentOccupation: 'POS Business Owner',
+        industry: 'Financial Services',
+        yearsOfExperience: 4,
+        employmentType: 'INFORMAL_WORKER',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.country).toBe('Nigeria');
+    expect(response.json().data.state).toBe('Lagos');
+
+    const read = await call({ method: 'GET', url: '/api/v1/profile', token });
+    expect(read.json().data.country).toBe('Nigeria');
+    expect(read.json().data.state).toBe('Lagos');
+  });
+
+  it('keeps existing clients working when no state was supplied', async () => {
+    const { token } = await register();
+    const response = await call({
+      method: 'PUT',
+      url: '/api/v1/profile',
+      token,
+      payload: {
+        currentOccupation: 'Trader',
+        industry: 'Retail',
+        yearsOfExperience: 2,
+        employmentType: 'SELF_EMPLOYED',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.country).toBe('Nigeria');
+    expect(response.json().data.state).toBeNull();
+  });
+
+  it('updates country and state through the profile upsert', async () => {
+    const { token } = await register('Lagos');
+    const response = await call({
+      method: 'PUT',
+      url: '/api/v1/profile',
+      token,
+      payload: {
+        currentOccupation: 'Trader',
+        industry: 'Retail',
+        yearsOfExperience: 2,
+        employmentType: 'SELF_EMPLOYED',
+        state: 'Ogun',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.country).toBe('Nigeria');
+    expect(response.json().data.state).toBe('Ogun');
+  });
+
+  it('clears the stored state when null is sent alongside a new country', async () => {
+    const { token, userId } = await register('Lagos');
+    const response = await call({
+      method: 'PUT',
+      url: '/api/v1/profile',
+      token,
+      payload: {
+        currentOccupation: 'Trader',
+        industry: 'Retail',
+        yearsOfExperience: 2,
+        employmentType: 'SELF_EMPLOYED',
+        country: 'Ghana',
+        state: null,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.country).toBe('Ghana');
+    expect(response.json().data.state).toBeNull();
+
+    const rows = await queryText<{ country: string; state: string | null }>(
+      getPool(),
+      'SELECT "country", "state" FROM "users" WHERE "id" = $1',
+      [userId],
+    );
+    expect(rows[0]?.country).toBe('Ghana');
+    expect(rows[0]?.state).toBeNull();
+  });
+
+  it('leaves the stored location untouched when the fields are omitted', async () => {
+    const { token } = await register('Lagos');
+    const response = await call({
+      method: 'PUT',
+      url: '/api/v1/profile',
+      token,
+      payload: {
+        currentOccupation: 'Trader',
+        industry: 'Retail',
+        yearsOfExperience: 2,
+        employmentType: 'SELF_EMPLOYED',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.country).toBe('Nigeria');
+    expect(response.json().data.state).toBe('Lagos');
+  });
+
+  it('rejects an empty country or an over-long state', async () => {
+    const { token } = await register('Lagos');
+    const emptyCountry = await call({
+      method: 'PUT',
+      url: '/api/v1/profile',
+      token,
+      payload: {
+        currentOccupation: 'Trader',
+        industry: 'Retail',
+        yearsOfExperience: 2,
+        employmentType: 'SELF_EMPLOYED',
+        country: '   ',
+      },
+    });
+    expect(emptyCountry.statusCode).toBe(400);
+    expect(emptyCountry.json().error.code).toBe('VALIDATION_ERROR');
+
+    const longState = await call({
+      method: 'PUT',
+      url: '/api/v1/profile',
+      token,
+      payload: {
+        currentOccupation: 'Trader',
+        industry: 'Retail',
+        yearsOfExperience: 2,
+        employmentType: 'SELF_EMPLOYED',
+        state: 'x'.repeat(101),
+      },
+    });
+    expect(longState.statusCode).toBe(400);
+    expect(longState.json().error.code).toBe('VALIDATION_ERROR');
   });
 });

@@ -15,6 +15,8 @@ const careerProfileViewSchema = {
   type: 'object',
   required: [
     'id',
+    'country',
+    'state',
     'currentOccupation',
     'industry',
     'yearsOfExperience',
@@ -30,6 +32,11 @@ const careerProfileViewSchema = {
   additionalProperties: false,
   properties: {
     id: uuidSchema(),
+    country: { type: 'string', description: "The authenticated user's country" },
+    state: {
+      type: ['string', 'null'],
+      description: "The authenticated user's state or province. Null when unset.",
+    },
     currentOccupation: { type: 'string' },
     industry: { type: 'string' },
     yearsOfExperience: { type: 'number', minimum: 0, maximum: 100 },
@@ -92,6 +99,17 @@ const upsertProfileBodySchema = {
       items: uuidSchema(),
       description: 'Optional skills to add as SELF_REPORTED',
     },
+    country: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 100,
+      description: 'Optional. Updates the authenticated user location when present.',
+    },
+    state: {
+      type: ['string', 'null'],
+      maxLength: 100,
+      description: 'Optional. Send null to clear the stored state or province.',
+    },
   },
 } as const;
 
@@ -140,6 +158,8 @@ export function registerProfileModule(app: FastifyInstance, service: ProfileServ
                 careerInterests: ['Operations', 'Financial Services'],
                 targetCareerId: '00000000-0000-4000-8000-000000000000',
                 skillIds: [],
+                country: 'Nigeria',
+                state: 'Lagos',
               },
             ),
             response: {

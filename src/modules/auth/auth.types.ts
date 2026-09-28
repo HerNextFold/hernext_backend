@@ -7,6 +7,7 @@ export interface PublicUser {
   lastName: string;
   email: string;
   country: string;
+  state: string | null;
   role: UserRole;
   emailVerified: boolean;
 }

@@ -11,6 +11,7 @@ export interface UserRow {
   lastName: string;
   role: UserRole;
   country: string;
+  state: string | null;
   isActive: boolean;
   emailVerified: boolean;
   verifiedAt: Date | null;
@@ -32,6 +33,7 @@ export interface CreateUserInput {
   lastName: string;
   role: UserRole;
   country: string;
+  state?: string | null;
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -47,10 +49,18 @@ export async function insertUser(db: Db, input: CreateUserInput): Promise<UserRo
   try {
     const row = await queryRow<UserRow>(
       db,
-      `INSERT INTO "users" ("email", "passwordHash", "firstName", "lastName", "role", "country")
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO "users" ("email", "passwordHash", "firstName", "lastName", "role", "country", "state")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [input.email, input.passwordHash, input.firstName, input.lastName, input.role, input.country],
+      [
+        input.email,
+        input.passwordHash,
+        input.firstName,
+        input.lastName,
+        input.role,
+        input.country,
+        input.state ?? null,
+      ],
     );
     if (row === null) {
       throw new Error('insertUser returned no row');
@@ -93,6 +103,39 @@ export async function markUserVerified(db: Db, userId: string): Promise<void> {
     db,
     'UPDATE "users" SET "emailVerified" = true, "verifiedAt" = now(), "updatedAt" = now() WHERE "id" = $1',
     [userId],
+  );
+}
+
+export interface UpdateUserLocationInput {
+  country?: string;
+  state?: string | null;
+}
+
+/**
+ * Partially updates the user's own location. Omitted fields are left untouched,
+ * while an explicit `state: null` clears it, so the caller stays in control of
+ * whether a country change also clears the state.
+ */
+export async function updateUserLocation(
+  db: Db,
+  userId: string,
+  input: UpdateUserLocationInput,
+): Promise<UserRow | null> {
+  return queryRow<UserRow>(
+    db,
+    `UPDATE "users"
+     SET "country" = CASE WHEN $2::boolean THEN $3 ELSE "country" END,
+         "state" = CASE WHEN $4::boolean THEN $5 ELSE "state" END,
+         "updatedAt" = now()
+     WHERE "id" = $1
+     RETURNING *`,
+    [
+      userId,
+      input.country !== undefined,
+      input.country ?? null,
+      input.state !== undefined,
+      input.state ?? null,
+    ],
   );
 }
 

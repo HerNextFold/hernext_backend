@@ -131,6 +131,7 @@ code.
   "email": "aisha@example.com",
   "password": "SecurePassword123!",
   "country": "Nigeria",
+  "state": "Lagos",
   "role": "PARTICIPANT"
 }
 ```
@@ -141,6 +142,11 @@ code.
 * Email must be unique.
 * Password must satisfy minimum security requirements.
 * Password must be hashed before storage.
+* `country` is required and stored verbatim as a free-text country name.
+* `state` is **optional** and must be a non-empty string when supplied. Omit it
+  for countries with no listed subdivision; the stored value is then `null`.
+  Accounts created before this field existed keep working and report
+  `state: null`.
 * Participant registration creates a `ParticipantProfile`.
 * Users must not be able to arbitrarily create privileged organization-admin accounts unless the product explicitly allows it.
 * The account is created UNVERIFIED. **No access token is returned.**
@@ -163,7 +169,8 @@ code.
       "email": "aisha@example.com",
       "emailVerified": false,
       "role": "PARTICIPANT",
-      "country": "Nigeria"
+      "country": "Nigeria",
+      "state": "Lagos"
     },
     "verificationStatus": "PENDING"
   }
@@ -213,7 +220,8 @@ normal access token.
       "email": "aisha@example.com",
       "emailVerified": true,
       "role": "PARTICIPANT",
-      "country": "Nigeria"
+      "country": "Nigeria",
+      "state": "Lagos"
     },
     "accessToken": "token"
   }
@@ -282,7 +290,9 @@ Authenticates a user with a **verified** email.
       "lastName": "Abdullah",
       "email": "aisha@example.com",
       "emailVerified": true,
-      "role": "PARTICIPANT"
+      "role": "PARTICIPANT",
+      "country": "Nigeria",
+      "state": "Lagos"
     },
     "accessToken": "token"
   }
@@ -340,10 +350,15 @@ Required.
     "email": "aisha@example.com",
     "emailVerified": true,
     "country": "Nigeria",
+    "state": "Lagos",
     "role": "PARTICIPANT"
   }
 }
 ```
+
+This is the endpoint the client uses to re-hydrate the signed-in user's
+location after a reload, so `country` and `state` always come from the server
+rather than local storage.
 
 ---
 
@@ -467,6 +482,9 @@ Required.
 {
   "success": true,
   "data": {
+    "id": "uuid",
+    "country": "Nigeria",
+    "state": "Lagos",
     "currentOccupation": "POS Business Owner",
     "industry": "Financial Services",
     "yearsOfExperience": 4,
@@ -481,11 +499,20 @@ Required.
 }
 ```
 
+`country` and `state` are the authenticated user's own location. They are read
+from the `users` row — the same source as `GET /auth/me` — so location is never
+duplicated inside `career_profiles`. `state` is `null` when the user has not
+chosen one.
+
 ---
 
 # 12. PUT `/profile`
 
 Creates or updates the participant's career profile.
+
+The same request may also update the user's location. This is deliberately the
+only write path for location after registration: there is no separate location
+endpoint.
 
 ### Request
 
@@ -499,9 +526,22 @@ Creates or updates the participant's career profile.
   "careerInterests": [
     "Fintech",
     "Banking Operations"
-  ]
+  ],
+  "country": "Nigeria",
+  "state": "Lagos"
 }
 ```
+
+### Rules
+
+* `country` and `state` are both optional. A field that is **omitted** keeps its
+  currently stored value; a field that is **present** is written. Sending
+  `"state": null` clears the stored state.
+* The client owns the "changing country clears state" rule: send the new
+  `country` together with `"state": null` in one request. The backend does not
+  infer a clearing rule, so behaviour is never hidden from the caller.
+* Location is always written for the authenticated user only. A `userId` in the
+  body is never trusted, and the body is strictly validated.
 
 ### Response
 

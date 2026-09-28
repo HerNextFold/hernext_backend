@@ -134,7 +134,7 @@ export const SKILL_SOURCES = ['SELF_REPORTED', 'AI_DERIVED', 'CHALLENGE', 'VERIF
 
 export const publicUserSchema: JsonSchema = {
   type: 'object',
-  required: ['id', 'firstName', 'lastName', 'email', 'country', 'role', 'emailVerified'],
+  required: ['id', 'firstName', 'lastName', 'email', 'country', 'state', 'role', 'emailVerified'],
   additionalProperties: false,
   properties: {
     id: uuidSchema(),
@@ -142,6 +142,10 @@ export const publicUserSchema: JsonSchema = {
     lastName: { type: 'string' },
     email: { type: 'string', format: 'email' },
     country: { type: 'string' },
+    state: {
+      type: ['string', 'null'],
+      description: 'State or province. Null when not provided or not listed for the country.',
+    },
     role: { type: 'string', enum: [...USER_ROLES] },
     emailVerified: { type: 'boolean', description: 'False until the registration email OTP is proven' },
   },
